@@ -1,0 +1,934 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Panel de Administración del Catálogo</title>
+  
+  <!-- PWA Manifest & Meta Tags -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#2563eb">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="apple-touch-icon" href="./logo.png">
+
+  <!-- Tailwind CSS CDN & Icons (cacheados offline) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col font-sans">
+
+  <!-- Top Navbar -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-sm">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex justify-between h-16 items-center">
+        <!-- Logo & Title -->
+        <div class="flex items-center gap-3">
+          <img id="admin-logo" src="" alt="Logo" class="hidden w-10 h-10 rounded-xl object-cover shadow-md">
+          <div id="admin-logo-fallback" class="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-md shadow-blue-500/30">
+            <i class="fa-solid fa-boxes-stacked text-lg"></i>
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <h1 id="admin-company-name" class="text-lg font-bold text-slate-900 leading-tight">Tu empresa</h1>
+              <span class="bg-blue-100 text-blue-800 text-xs font-semibold px-2 py-0.5 rounded-full">Admin Portal</span>
+            </div>
+            <p class="text-xs text-slate-500">Gestión de Catálogo Preventa & Google Sheets</p>
+          </div>
+        </div>
+
+        <!-- Action & Status Badges -->
+        <div class="flex items-center gap-3">
+          <div id="status-sheet-badge" class="hidden sm:flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+            <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span>Google Sheet Conectado</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Navigation Tabs -->
+      <nav class="flex space-x-1 border-t border-slate-100 overflow-x-auto py-1">
+        <button onclick="switchTab('welcome')" id="tab-btn-welcome" class="tab-btn active px-4 py-2 text-sm font-medium rounded-lg flex items-center gap-2 text-blue-600 bg-blue-50">
+          <i class="fa-solid fa-house"></i>
+          <span>Bienvenida</span>
+        </button>
+        <button onclick="switchTab('dashboard')" id="tab-btn-dashboard" class="tab-btn px-4 py-2 text-sm font-medium rounded-lg flex items-center gap-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100">
+          <i class="fa-solid fa-chart-pie"></i>
+          <span>Resumen</span>
+        </button>
+        <button onclick="switchTab('images')" id="tab-btn-images" class="tab-btn px-4 py-2 text-sm font-medium rounded-lg flex items-center gap-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100">
+          <i class="fa-solid fa-image"></i>
+          <span>Fotos & Google Sheets</span>
+        </button>
+        <button onclick="switchTab('clients')" id="tab-btn-clients" class="tab-btn px-4 py-2 text-sm font-medium rounded-lg flex items-center gap-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100">
+          <i class="fa-solid fa-users"></i>
+          <span>Clientes & Listas</span>
+        </button>
+        <button onclick="switchTab('sellers')" id="tab-btn-sellers" class="tab-btn px-4 py-2 text-sm font-medium rounded-lg flex items-center gap-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100">
+          <i class="fa-solid fa-id-badge"></i>
+          <span>Vendedores</span>
+        </button>
+        <button onclick="switchTab('maestros')" id="tab-btn-maestros" class="tab-btn px-4 py-2 text-sm font-medium rounded-lg flex items-center gap-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100">
+          <i class="fa-solid fa-layer-group"></i>
+          <span>Maestros</span>
+        </button>
+        <button onclick="switchTab('client-catalog')" id="tab-btn-client-catalog" class="tab-btn px-4 py-2 text-sm font-medium rounded-lg flex items-center gap-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100">
+          <i class="fa-solid fa-mobile-screen-button"></i>
+          <span>Catálogo cliente</span>
+        </button>
+        <button onclick="switchTab('config')" id="tab-btn-config" class="tab-btn px-4 py-2 text-sm font-medium rounded-lg flex items-center gap-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100">
+          <i class="fa-solid fa-gear"></i>
+          <span>Configuración</span>
+        </button>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 w-full">
+
+    <!-- Notification Banner -->
+    <div id="alert-banner" class="hidden mb-6 p-4 rounded-xl text-sm flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <i id="alert-icon" class="text-base"></i>
+        <span id="alert-message"></span>
+      </div>
+      <button onclick="hideAlert()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+
+    <!-- TAB BIENVENIDA -->
+    <section id="tab-welcome" class="tab-content space-y-6">
+      
+      <!-- Welcome Hero Card -->
+      <div class="relative overflow-hidden bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 rounded-3xl p-8 sm:p-12 text-white shadow-xl border border-slate-800">
+        <!-- Glow decorativo de fondo -->
+        <div class="absolute -right-20 -top-20 w-80 h-80 bg-blue-500/10 rounded-full blur-3xl pointer-events-none"></div>
+        <div class="absolute -left-20 -bottom-20 w-80 h-80 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none"></div>
+
+        <div class="relative z-10 flex flex-col md:flex-row items-center gap-8 md:gap-12">
+          
+          <!-- Logo del Proyecto -->
+          <div class="shrink-0 flex flex-col items-center">
+            <div class="relative group">
+              <div class="absolute -inset-1 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-3xl blur opacity-30 group-hover:opacity-50 transition duration-500"></div>
+              <img id="welcome-logo" src="" alt="Logo de la empresa" class="hidden relative w-28 h-28 sm:w-36 sm:h-36 rounded-2xl object-cover bg-white p-2 shadow-2xl border-2 border-white/20">
+              <div id="welcome-logo-fallback" class="relative w-28 h-28 sm:w-36 sm:h-36 rounded-2xl bg-white/10 flex items-center justify-center text-white/60 text-4xl border-2 border-white/20">
+                <i class="fa-solid fa-store"></i>
+              </div>
+            </div>
+            <span class="mt-3 px-3 py-1 rounded-full text-[11px] font-bold bg-white/10 text-blue-200 border border-white/10 flex items-center gap-1.5">
+              <i class="fa-solid fa-shield-halved text-[10px] text-emerald-400"></i>
+              <span>100% Offline & Autónomo</span>
+            </span>
+          </div>
+
+          <!-- Mensaje de Bienvenida -->
+          <div class="flex-1 text-center md:text-left space-y-3">
+            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/20 text-blue-300 text-xs font-semibold border border-blue-400/30">
+              <i class="fa-solid fa-boxes-stacked text-amber-300"></i>
+              <span id="welcome-badge-company">Tu empresa</span>
+            </div>
+
+            <h2 class="text-2xl sm:text-4xl font-extrabold text-white tracking-tight leading-tight">
+              Bienvenido al portal administrativo para tu catálogo
+            </h2>
+
+            <p class="text-sm sm:text-base text-slate-300 max-w-2xl leading-relaxed">
+              Control centralizado y autónomo de productos, inventario, asignación de fotos vinculadas a Google Sheets, listas de precios por cliente, gestión de vendedores y publicación de vitrinas independientes.
+            </p>
+
+            <!-- Acciones Principales -->
+            <div class="pt-2 flex flex-wrap items-center justify-center md:justify-start gap-3">
+              <button onclick="switchTab('dashboard')" class="px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white font-bold text-sm shadow-lg shadow-blue-600/30 transition flex items-center gap-2.5">
+                <i class="fa-solid fa-chart-pie"></i>
+                <span>Ingresar al Resumen</span>
+              </button>
+              <button onclick="switchTab('images')" class="px-5 py-3 rounded-xl bg-white/10 hover:bg-white/20 active:bg-white/15 text-white font-semibold text-sm border border-white/10 transition flex items-center gap-2">
+                <i class="fa-solid fa-image text-blue-300"></i>
+                <span>Gestionar Fotos</span>
+              </button>
+              <button onclick="switchTab('config')" class="px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 font-semibold text-sm border border-white/10 transition flex items-center gap-2">
+                <i class="fa-solid fa-gear"></i>
+                <span>Configuración</span>
+              </button>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Barra inferior con métricas rápidas -->
+        <div class="relative z-10 mt-8 pt-6 border-t border-white/10 grid grid-cols-2 sm:grid-cols-4 gap-4 text-center md:text-left">
+          <div>
+            <span class="block text-xl sm:text-2xl font-black text-white" id="welcome-stat-products">0</span>
+            <span class="text-xs text-slate-400">Productos Activos</span>
+          </div>
+          <div>
+            <span class="block text-xl sm:text-2xl font-black text-white" id="welcome-stat-clients">0</span>
+            <span class="text-xs text-slate-400">Clientes Registrados</span>
+          </div>
+          <div>
+            <span class="block text-xl sm:text-2xl font-black text-white" id="welcome-stat-discounts">0</span>
+            <span class="text-xs text-slate-400">Reglas de Descuento</span>
+          </div>
+          <div>
+            <span class="block text-xl sm:text-2xl font-black text-emerald-400" id="welcome-stat-images">0</span>
+            <span class="text-xs text-slate-400">Fotos Asignadas</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Accesos Rápidos Modulares -->
+      <div>
+        <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 px-1">
+          Módulos y Herramientas del Sistema
+        </h3>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+
+          <!-- Tarjeta 1: Resumen -->
+          <div onclick="switchTab('dashboard')" class="cursor-pointer bg-white p-6 rounded-2xl border border-slate-200/90 hover:border-blue-500 hover:shadow-md transition group">
+            <div class="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center text-xl mb-3 group-hover:scale-110 transition">
+              <i class="fa-solid fa-chart-pie"></i>
+            </div>
+            <h4 class="text-base font-bold text-slate-900 mb-1">Resumen & Métricas</h4>
+            <p class="text-xs text-slate-500 leading-relaxed">
+              Consulta total de productos con inventario, métricas de catálogo y diagnóstico de sincronización.
+            </p>
+            <div class="mt-4 flex items-center gap-1 text-xs font-semibold text-blue-600">
+              <span>Abrir Resumen</span>
+              <i class="fa-solid fa-arrow-right text-[10px] group-hover:translate-x-1 transition"></i>
+            </div>
+          </div>
+
+          <!-- Tarjeta 2: Fotos & Google Sheets -->
+          <div onclick="switchTab('images')" class="cursor-pointer bg-white p-6 rounded-2xl border border-slate-200/90 hover:border-emerald-500 hover:shadow-md transition group">
+            <div class="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-xl mb-3 group-hover:scale-110 transition">
+              <i class="fa-solid fa-image"></i>
+            </div>
+            <h4 class="text-base font-bold text-slate-900 mb-1">Fotos & Google Sheets</h4>
+            <p class="text-xs text-slate-500 leading-relaxed">
+              Asigna fotos a tus productos usando enlaces de Google Drive o web, sincronizando directamente con la hoja Fotos.
+            </p>
+            <div class="mt-4 flex items-center gap-1 text-xs font-semibold text-emerald-600">
+              <span>Gestionar Fotos</span>
+              <i class="fa-solid fa-arrow-right text-[10px] group-hover:translate-x-1 transition"></i>
+            </div>
+          </div>
+
+          <!-- Tarjeta 3: Clientes & Listas -->
+          <div onclick="switchTab('clients')" class="cursor-pointer bg-white p-6 rounded-2xl border border-slate-200/90 hover:border-purple-500 hover:shadow-md transition group">
+            <div class="w-12 h-12 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center text-xl mb-3 group-hover:scale-110 transition">
+              <i class="fa-solid fa-users"></i>
+            </div>
+            <h4 class="text-base font-bold text-slate-900 mb-1">Clientes & Listas de Precios</h4>
+            <p class="text-xs text-slate-500 leading-relaxed">
+              Inspecciona cartera de clientes, listas asignadas (L1 a L12), plazos de crédito y descuentos por cliente.
+            </p>
+            <div class="mt-4 flex items-center gap-1 text-xs font-semibold text-purple-600">
+              <span>Ver Clientes</span>
+              <i class="fa-solid fa-arrow-right text-[10px] group-hover:translate-x-1 transition"></i>
+            </div>
+          </div>
+
+          <!-- Tarjeta 4: Vendedores -->
+          <div onclick="switchTab('sellers')" class="cursor-pointer bg-white p-6 rounded-2xl border border-slate-200/90 hover:border-amber-500 hover:shadow-md transition group">
+            <div class="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center text-xl mb-3 group-hover:scale-110 transition">
+              <i class="fa-solid fa-id-badge"></i>
+            </div>
+            <h4 class="text-base font-bold text-slate-900 mb-1">Vendedores & Rutas</h4>
+            <p class="text-xs text-slate-500 leading-relaxed">
+              Administra códigos, usuarios y contraseñas de vendedores para sus rutas individuales de preventa.
+            </p>
+            <div class="mt-4 flex items-center gap-1 text-xs font-semibold text-amber-600">
+              <span>Administrar Vendedores</span>
+              <i class="fa-solid fa-arrow-right text-[10px] group-hover:translate-x-1 transition"></i>
+            </div>
+          </div>
+
+          <!-- Tarjeta 5: Catálogo Cliente -->
+          <div onclick="switchTab('client-catalog')" class="cursor-pointer bg-white p-6 rounded-2xl border border-slate-200/90 hover:border-rose-500 hover:shadow-md transition group">
+            <div class="w-12 h-12 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center text-xl mb-3 group-hover:scale-110 transition">
+              <i class="fa-solid fa-mobile-screen-button"></i>
+            </div>
+            <h4 class="text-base font-bold text-slate-900 mb-1">Catálogo Cliente Web</h4>
+            <p class="text-xs text-slate-500 leading-relaxed">
+              Publica la vitrina web para clientes (sin precios ni inventario) con enlace directo para pedidos por WhatsApp.
+            </p>
+            <div class="mt-4 flex items-center gap-1 text-xs font-semibold text-rose-600">
+              <span>Configurar Vitrina</span>
+              <i class="fa-solid fa-arrow-right text-[10px] group-hover:translate-x-1 transition"></i>
+            </div>
+          </div>
+
+          <!-- Tarjeta 6: Configuración & Marca -->
+          <div onclick="switchTab('config')" class="cursor-pointer bg-white p-6 rounded-2xl border border-slate-200/90 hover:border-slate-500 hover:shadow-md transition group">
+            <div class="w-12 h-12 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center text-xl mb-3 group-hover:scale-110 transition">
+              <i class="fa-solid fa-gear"></i>
+            </div>
+            <h4 class="text-base font-bold text-slate-900 mb-1">Configuración & Marca</h4>
+            <p class="text-xs text-slate-500 leading-relaxed">
+              Personaliza el nombre de la empresa, logo oficial, URL del Google Sheet y opciones generales del catálogo.
+            </p>
+            <div class="mt-4 flex items-center gap-1 text-xs font-semibold text-slate-700">
+              <span>Abrir Ajustes</span>
+              <i class="fa-solid fa-arrow-right text-[10px] group-hover:translate-x-1 transition"></i>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </section>
+
+    <!-- TAB 1: DASHBOARD / RESUMEN -->
+    <section id="tab-dashboard" class="tab-content hidden space-y-6">
+
+      <!-- Metrics Grid -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <!-- Metric 1: Total Products -->
+        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+          <div class="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center text-xl">
+            <i class="fa-solid fa-box-open"></i>
+          </div>
+          <div>
+            <p class="text-xs font-medium text-slate-500 uppercase tracking-wider">Productos Totales</p>
+            <h3 id="stat-total-products" class="text-2xl font-bold text-slate-900">0</h3>
+            <p class="text-xs text-slate-400">100% de campos API</p>
+          </div>
+        </div>
+
+        <!-- Metric 3: Clients -->
+        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+          <div class="w-12 h-12 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center text-xl">
+            <i class="fa-solid fa-users"></i>
+          </div>
+          <div>
+            <p class="text-xs font-medium text-slate-500 uppercase tracking-wider">Clientes Cartera</p>
+            <h3 id="stat-total-clients" class="text-2xl font-bold text-purple-700">0</h3>
+            <p class="text-xs text-slate-400">Con lista asignada</p>
+          </div>
+        </div>
+
+        <!-- Metric 4: Discounts -->
+        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+          <div class="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center text-xl">
+            <i class="fa-solid fa-percent"></i>
+          </div>
+          <div>
+            <p class="text-xs font-medium text-slate-500 uppercase tracking-wider">Reglas Descuento</p>
+            <h3 id="stat-total-discounts" class="text-2xl font-bold text-amber-600">0</h3>
+            <p class="text-xs text-slate-400">Se suman al cliente</p>
+          </div>
+        </div>
+
+        <!-- Metric 5: CABYS -->
+        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+          <div class="w-12 h-12 rounded-xl bg-cyan-50 text-cyan-600 flex items-center justify-center text-xl">
+            <i class="fa-solid fa-receipt"></i>
+          </div>
+          <div>
+            <p class="text-xs font-medium text-slate-500 uppercase tracking-wider">Códigos CABYS</p>
+            <h3 id="stat-total-cabys" class="text-2xl font-bold text-cyan-700">0</h3>
+            <p class="text-xs text-slate-400">IVA 13%, 1%, 2%, 0%</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Overview Cards: Photos & Fast Actions -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        <!-- Photo Coverage Card -->
+        <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm lg:col-span-2">
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <h3 class="text-base font-bold text-slate-900">Cobertura de Fotos en Catálogo (Google Sheets)</h3>
+              <p class="text-xs text-slate-500">Imágenes vinculadas por código para visualización en alta definición</p>
+            </div>
+            <button onclick="switchTab('images')" class="text-xs font-medium text-blue-600 hover:text-blue-800 flex items-center gap-1">
+              <span>Gestionar Fotos</span>
+              <i class="fa-solid fa-arrow-right"></i>
+            </button>
+          </div>
+
+          <div class="space-y-4">
+            <div class="w-full bg-slate-100 rounded-full h-3 overflow-hidden flex">
+              <div id="progress-photos-bar" class="bg-blue-600 h-3 transition-all duration-500" style="width: 25%"></div>
+            </div>
+            <div class="flex justify-between text-xs text-slate-600">
+              <div class="flex items-center gap-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-blue-600"></span>
+                <span id="label-photos-assigned">0 productos con foto HD</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-slate-300"></span>
+                <span id="label-photos-missing">0 productos pendientes de foto</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-6 pt-5 border-t border-slate-100 flex flex-wrap gap-4 items-center justify-between text-xs">
+            <div class="text-slate-500">
+              <i class="fa-solid fa-circle-info text-blue-500 mr-1"></i>
+              Las fotos se leen en tiempo real de la pestaña <strong>"Imagenes"</strong> de tu Google Sheet.
+            </div>
+            <button onclick="switchTab('images')" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition font-medium">
+              Ver productos sin foto
+            </button>
+          </div>
+        </div>
+
+        <!-- Quick Summary & Status -->
+        <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
+          <div>
+            <h3 class="text-base font-bold text-slate-900 mb-1">Estado de Publicación</h3>
+            <p class="text-xs text-slate-500 mb-4">Lo que los preventas ven en su app</p>
+            
+            <div class="space-y-3">
+              <div class="flex items-center justify-between text-xs p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                <span class="text-slate-600 font-medium">Versión Publicada</span>
+                <span id="summary-version" class="font-bold text-slate-900">1.0.0</span>
+              </div>
+              <div class="flex items-center justify-between text-xs p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                <span class="text-slate-600 font-medium">Última Actualización</span>
+                <span id="summary-last-update" class="font-medium text-slate-700">Hoy</span>
+              </div>
+              <div class="flex items-center justify-between text-xs p-2.5 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-800">
+                <span class="font-medium">Regla Stock Preventa</span>
+                <span class="font-bold">Activa (Oculta sin stock)</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="pt-4">
+            <button onclick="notifyDeveloper('preventa')" class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl shadow-sm transition flex items-center justify-center gap-2">
+              <i class="fa-brands fa-whatsapp text-sm"></i>
+              <span>Avisar al Desarrollador para Publicar</span>
+            </button>
+            <p class="text-[11px] text-slate-400 text-center mt-2">Se abre WhatsApp con el resumen listo para enviar.</p>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Actualización Interna de Información -->
+      <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div class="flex flex-col lg:flex-row lg:items-center gap-6">
+          <div class="flex-1">
+            <h3 class="text-base font-bold text-slate-900 mb-1">Actualización de Información</h3>
+            <p class="text-xs text-slate-500 mb-4">Descarga por vendedor (su usuario=) y consolida todo</p>
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div class="flex items-center justify-between text-xs p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                <span class="text-slate-600 font-medium">Productos</span>
+                <span id="sync-count-products" class="font-bold text-slate-900">0</span>
+              </div>
+              <div class="flex items-center justify-between text-xs p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                <span class="text-slate-600 font-medium">Clientes</span>
+                <span id="sync-count-clients" class="font-bold text-slate-900">0</span>
+              </div>
+              <div class="flex items-center justify-between text-xs p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                <span class="text-slate-600 font-medium">Descuentos</span>
+                <span id="sync-count-discounts" class="font-bold text-slate-900">0</span>
+              </div>
+              <div class="flex items-center justify-between text-xs p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                <span class="text-slate-600 font-medium">CABYS</span>
+                <span id="sync-count-cabys" class="font-bold text-slate-900">0</span>
+              </div>
+            </div>
+            <p class="text-xs text-slate-500 mt-3">Última sincronización: <span id="sync-last-run" class="font-medium text-slate-700">Pendiente</span></p>
+            <div class="mt-3">
+              <p class="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">Datos por vendedor (su usuario=)</p>
+              <div id="vendor-sync-list" class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <p class="text-[11px] text-slate-400">Se cargan con Actualizar Información.</p>
+              </div>
+            </div>
+          </div>
+          <div class="lg:w-72 shrink-0">
+            <button onclick="syncAllApis()" id="btn-sync-all" class="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl shadow-sm transition flex items-center justify-center gap-2">
+              <i class="fa-solid fa-arrows-rotate"></i>
+              <span>Actualizar Información</span>
+            </button>
+            <button onclick="clearAllCache()" id="btn-clear-cache" class="w-full mt-2 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold rounded-xl transition flex items-center justify-center gap-2" title="Borra todo lo guardado en este navegador para cargar desde cero">
+              <i class="fa-solid fa-trash-can"></i>
+              <span>Borrar Caché y Cargar Desde Cero</span>
+            </button>
+            <p id="sync-status-msg" class="text-[11px] text-slate-500 text-center mt-2">Presiona para descargar los datos más recientes.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Gráfico ejecutivo: Clientes totales vs por vendedor -->
+      <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div class="flex items-center justify-between mb-1">
+          <div>
+            <h3 class="text-base font-bold text-slate-900">Clientes: Cartera Total vs por Vendedor</h3>
+            <p class="text-xs text-slate-500">Cantidades reales descargadas (máster y rutas con su usuario=)</p>
+          </div>
+          <i class="fa-solid fa-chart-column text-purple-200 text-2xl"></i>
+        </div>
+        <div id="vendor-clients-chart" class="mt-4">
+          <p class="text-[11px] text-slate-400">Se calcula con Actualizar Información.</p>
+        </div>
+      </div>
+
+    </section>
+
+
+    
+
+
+    <!-- TAB 3: FOTOS & GOOGLE SHEETS -->
+    <section id="tab-images" class="tab-content hidden space-y-6">
+      
+      <!-- Aviso de conexión central -->
+      <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <p class="text-xs text-slate-500"><i class="fa-solid fa-circle-info text-blue-500 mr-1"></i>La conexión vive en la pestaña <strong>Configuración</strong>. Las fotos se leen y escriben en <strong>"Imagenes"</strong> (<code class="bg-slate-100 px-1 py-0.5 rounded">codigo</code> y <code class="bg-slate-100 px-1 py-0.5 rounded">link</code>).</p>
+        <div class="flex gap-2">
+          <button onclick="switchTab('config')" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition font-medium text-xs">Ir a Configuración</button>
+          <button onclick="testAndLoadGoogleSheet()" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition font-semibold text-xs flex items-center gap-1.5">
+            <i class="fa-solid fa-plug"></i>
+            <span>Cargar Fotos del Sheet</span>
+          </button>
+          <button onclick="uploadAllImagesToSheet()" id="btn-upload-images" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition font-semibold text-xs flex items-center gap-1.5">
+            <i class="fa-solid fa-cloud-arrow-up"></i>
+            <span>Subir Fotos al Sheet</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Products & Photos Table -->
+      <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        
+        <!-- Filter and Search Bar -->
+        <div class="flex flex-col sm:flex-row items-center justify-between gap-4 mb-4">
+          <div class="flex items-center gap-2 w-full sm:w-auto">
+            <button onclick="filterPhotosList('all')" id="btn-filter-all" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-50 text-blue-700">Todos</button>
+            <button onclick="filterPhotosList('with-photo')" id="btn-filter-with" class="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100">Con Foto (<span id="count-with-photo">0</span>)</button>
+            <button onclick="filterPhotosList('without-photo')" id="btn-filter-without" class="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100">Sin Foto (<span id="count-without-photo">0</span>)</button>
+          </div>
+
+          <div class="w-full sm:w-72 relative">
+            <i class="fa-solid fa-magnifying-glass absolute left-3 top-3 text-slate-400 text-xs"></i>
+            <input type="text" id="search-photos-input" oninput="renderPhotosTable()" placeholder="Buscar por código o nombre..." class="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+        </div>
+
+        <!-- Table Container -->
+        <div class="overflow-x-auto rounded-xl border border-slate-200">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr class="bg-slate-100/75 text-slate-700 border-b border-slate-200">
+                <th class="p-3 w-16 text-center">Foto</th>
+                <th class="p-3 w-28">Código</th>
+                <th class="p-3">Nombre del Producto</th>
+                <th class="p-3 w-28 text-center">Stock</th>
+                <th class="p-3">Link de la Imagen (Google Sheet)</th>
+                <th class="p-3 w-24 text-center">Acción</th>
+              </tr>
+            </thead>
+            <tbody id="photos-table-body" class="divide-y divide-slate-100">
+              <!-- Rendered via JS -->
+            </tbody>
+          </table>
+        </div>
+
+        <div id="photos-pagination" class="flex items-center justify-between mt-4 text-xs text-slate-500">
+          <span id="photos-page-info">Mostrando productos</span>
+          <div class="flex gap-1" id="photos-page-buttons"></div>
+        </div>
+
+      </div>
+
+    </section>
+
+
+    <!-- TAB 4: CLIENTES & LISTAS -->
+    <section id="tab-clients" class="tab-content hidden space-y-6">
+      <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        
+        <div class="flex flex-col sm:flex-row items-center justify-between gap-4 mb-4">
+          <div>
+            <h2 class="text-lg font-bold text-slate-900">Directorio de Clientes & Reglas Asignadas</h2>
+            <p class="text-xs text-slate-500">Cada cliente tiene asignada una lista de precios y su propio porcentaje de descuento.</p>
+          </div>
+          <div class="w-full sm:w-auto flex flex-col sm:flex-row gap-2">
+            <select id="filter-client-vendor" onchange="renderClientsTable()" class="px-3 py-2 text-xs rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white font-medium text-slate-700">
+              <option value="ALL">Todos los vendedores</option>
+            </select>
+            <div class="w-full sm:w-72 relative">
+              <i class="fa-solid fa-magnifying-glass absolute left-3 top-3 text-slate-400 text-xs"></i>
+              <input type="text" id="search-clients-input" oninput="renderClientsTable()" placeholder="Buscar cliente por nombre o código..." class="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+          </div>
+        </div>
+
+        <!-- Clients Table -->
+        <div class="overflow-x-auto rounded-xl border border-slate-200">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr class="bg-slate-100/75 text-slate-700 border-b border-slate-200">
+                <th class="p-3 w-24">Código</th>
+                <th class="p-3">Nombre Comercial</th>
+                <th class="p-3 w-32">Documento / Cédula</th>
+                <th class="p-3 w-28 text-center">Lista Asignada</th>
+                <th class="p-3 w-32 text-center">Dto. Cliente</th>
+                <th class="p-3 w-36 text-center">Productos Visibles</th>
+                <th class="p-3 w-28 text-center">Simular App</th>
+              </tr>
+            </thead>
+            <tbody id="clients-table-body" class="divide-y divide-slate-100">
+              <!-- Rendered via JS -->
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+    </section>
+
+
+    <!-- TAB: VENDEDORES -->
+    <section id="tab-sellers" class="tab-content hidden space-y-6">
+      <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+          <div>
+            <h2 class="text-lg font-bold text-slate-900">Vendedores (Acceso a Preventa)</h2>
+            <p class="text-xs text-slate-500">Se guardan en la hoja <strong>"Vendedores"</strong> del Sheet (columnas: <code class="bg-slate-100 px-1 py-0.5 rounded">codigo</code>, <code class="bg-slate-100 px-1 py-0.5 rounded">nombre</code>, <code class="bg-slate-100 px-1 py-0.5 rounded">usuario</code>, <code class="bg-slate-100 px-1 py-0.5 rounded">password</code>, <code class="bg-slate-100 px-1 py-0.5 rounded">activo</code>). El preventa ingresa con código/usuario + contraseña.</p>
+          </div>
+          <button onclick="loadVendedores()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-medium transition flex items-center gap-1.5">
+            <i class="fa-solid fa-arrows-rotate"></i>
+            <span>Recargar del Sheet</span>
+          </button>
+        </div>
+
+        <!-- Form -->
+        <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">Código Vendedor</label>
+            <input type="text" id="seller-codigo" autocomplete="off" placeholder="Ej: V001" class="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">Nombre</label>
+            <input type="text" id="seller-nombre" autocomplete="off" placeholder="Nombre completo" class="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">Código de Usuario</label>
+            <input type="text" id="seller-usuario" autocomplete="off" placeholder="Ej: juan.p" class="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">Contraseña</label>
+            <input type="password" id="seller-password" autocomplete="new-password" placeholder="••••••••" class="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div class="flex gap-2">
+            <label class="flex items-center gap-1.5 text-xs text-slate-600 font-medium px-2">
+              <input type="checkbox" id="seller-activo" checked class="rounded">
+              <span>Activo</span>
+            </label>
+            <button onclick="saveVendedor()" id="btn-save-seller" class="flex-1 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm transition flex items-center justify-center gap-1.5">
+              <i class="fa-solid fa-floppy-disk"></i>
+              <span>Guardar</span>
+            </button>
+          </div>
+        </div>
+        <p class="text-[11px] text-slate-400 mt-2">Para editar, pulsa <strong>Editar</strong> en la fila (carga los datos arriba, la contraseña debe reescribirse). Para quitar acceso usa <strong>Desactivar</strong> o <strong>Eliminar</strong>.</p>
+      </div>
+
+      <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div class="flex flex-col sm:flex-row items-center justify-between gap-4 mb-4">
+          <div>
+            <h2 class="text-lg font-bold text-slate-900">Lista de Vendedores</h2>
+            <p class="text-xs text-slate-500"><span id="sellers-count">0</span> registrados en el Sheet</p>
+          </div>
+          <div class="w-full sm:w-72 relative">
+            <i class="fa-solid fa-magnifying-glass absolute left-3 top-3 text-slate-400 text-xs"></i>
+            <input type="text" id="search-sellers-input" oninput="renderSellersTable()" placeholder="Buscar por código, nombre o usuario..." class="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+        </div>
+        <div class="overflow-x-auto rounded-xl border border-slate-200">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr class="bg-slate-100/75 text-slate-700 border-b border-slate-200">
+                <th class="p-3 w-24">Código</th>
+                <th class="p-3">Nombre</th>
+                <th class="p-3 w-32">Usuario</th>
+                <th class="p-3 w-24 text-center">Estado</th>
+                <th class="p-3 w-48 text-center">Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="sellers-table-body" class="divide-y divide-slate-100">
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+
+    <!-- TAB: MAESTROS (Proveedores y Categorías) -->
+    <section id="tab-maestros" class="tab-content hidden space-y-6">
+      <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+          <div>
+            <h2 class="text-lg font-bold text-slate-900">Maestros de Proveedores y Categorías</h2>
+            <p class="text-xs text-slate-500">El ERP solo trae códigos (<code class="bg-slate-100 px-1 py-0.5 rounded">det_provee</code>, <code class="bg-slate-100 px-1 py-0.5 rounded">det_catego</code>). Aquí se les asigna nombre en las hojas <strong>"Proveedores"</strong> y <strong>"Categorias"</strong> del Sheet. Se publican con el catálogo para la app preventa.</p>
+          </div>
+          <div class="flex gap-2">
+            <button onclick="detectMaestroCodes()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-medium transition flex items-center gap-1.5">
+              <i class="fa-solid fa-magnifying-glass"></i>
+              <span>Detectar códigos del catálogo</span>
+            </button>
+            <button onclick="saveMaestros()" id="btn-save-maestros" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm transition flex items-center gap-1.5">
+              <i class="fa-solid fa-floppy-disk"></i>
+              <span>Guardar Maestros</span>
+            </button>
+          </div>
+        </div>
+        <div class="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div>
+            <h3 class="text-sm font-bold text-slate-900 mb-1">Proveedores <span id="prov-count" class="text-xs font-medium text-slate-400"></span></h3>
+            <div class="overflow-x-auto rounded-xl border border-slate-200 max-h-96 overflow-y-auto">
+              <table class="w-full text-left border-collapse text-xs">
+                <thead class="sticky top-0">
+                  <tr class="bg-slate-100/95 text-slate-700 border-b border-slate-200">
+                    <th class="p-3 w-20">Código</th>
+                    <th class="p-3 w-24 text-center">Productos</th>
+                    <th class="p-3">Nombre</th>
+                  </tr>
+                </thead>
+                <tbody id="prov-table-body" class="divide-y divide-slate-100"></tbody>
+              </table>
+            </div>
+          </div>
+          <div>
+            <h3 class="text-sm font-bold text-slate-900 mb-1">Categorías <span id="cat-count" class="text-xs font-medium text-slate-400"></span></h3>
+            <div class="overflow-x-auto rounded-xl border border-slate-200 max-h-96 overflow-y-auto">
+              <table class="w-full text-left border-collapse text-xs">
+                <thead class="sticky top-0">
+                  <tr class="bg-slate-100/95 text-slate-700 border-b border-slate-200">
+                    <th class="p-3 w-20">Código</th>
+                    <th class="p-3 w-24 text-center">Productos</th>
+                    <th class="p-3">Nombre</th>
+                  </tr>
+                </thead>
+                <tbody id="cat-table-body" class="divide-y divide-slate-100"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+
+    <!-- TAB: CATÁLOGO CLIENTE -->
+    <section id="tab-client-catalog" class="tab-content hidden space-y-6">
+      <div class="flex flex-col lg:flex-row gap-6 items-start">
+        <div class="w-full lg:w-3/5 space-y-5">
+          <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-5 border-b border-slate-100">
+              <div>
+                <h2 class="text-base font-bold text-slate-900">Configuración por vendedor</h2>
+                <p class="text-xs text-slate-500 mt-1">Solo se publica información apta para clientes: productos, fotos, promociones y el WhatsApp del vendedor.</p>
+              </div>
+              <span class="inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded-full bg-emerald-50 text-emerald-700 font-semibold"><i class="fa-solid fa-shield-halved"></i> Sin precios ni clientes</span>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-5">
+              <div class="block sm:col-span-2">
+                <span class="block text-xs font-semibold text-slate-700 mb-1.5">Vendedor</span>
+                <div id="client-catalog-vendors" class="flex flex-wrap gap-1.5"></div>
+              </div>
+              <label class="block sm:col-span-2"><span class="block text-xs font-semibold text-slate-700 mb-1.5">GS propio de su catálogo (script público en su hoja, /exec)</span><input id="client-catalog-sheets-url" oninput="updateClientCatalogDraft()" type="text" placeholder="https://script.google.com/macros/s/.../exec" class="w-full px-3 py-2.5 text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"></label>
+              <label class="block"><span class="block text-xs font-semibold text-slate-700 mb-1.5">Nombre visible del asesor</span><input id="client-catalog-name" oninput="updateClientCatalogDraft()" type="text" placeholder="Ej. Ana Rodríguez" class="w-full px-3 py-2.5 text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"></label>
+              <label class="block"><span class="block text-xs font-semibold text-slate-700 mb-1.5">WhatsApp (con código de país)</span><input id="client-catalog-whatsapp" oninput="updateClientCatalogDraft()" type="tel" placeholder="50688887777" class="w-full px-3 py-2.5 text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"></label>
+              <label class="block"><span class="block text-xs font-semibold text-slate-700 mb-1.5">Texto de portada</span><input id="client-catalog-headline" oninput="updateClientCatalogDraft()" type="text" placeholder="Descubrí lo que tenemos para vos" class="w-full px-3 py-2.5 text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"></label>
+            </div>
+            <div class="mt-5 pt-5 border-t border-slate-100">
+              <div class="flex items-center justify-between gap-3"><div><h3 class="text-sm font-bold text-slate-900">Oferta emergente</h3><p class="text-[11px] text-slate-500 mt-0.5">Aparece una vez por campaña, solamente cuando su imagen esté lista.</p></div><label class="relative inline-flex items-center cursor-pointer"><input id="client-catalog-offer-enabled" onchange="updateClientCatalogDraft()" type="checkbox" class="sr-only peer"><div class="w-10 h-5 bg-slate-200 rounded-full peer peer-checked:bg-blue-600 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5"></div></label></div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+                <label class="block sm:col-span-2"><span class="block text-xs font-semibold text-slate-700 mb-1.5">URL de imagen promocional (varias separadas por coma para carrusel)</span><textarea id="client-catalog-offer-image" oninput="updateClientCatalogDraft();autoGrow(this)" rows="2" placeholder="https://..., https://..." class="w-full px-3 py-2.5 text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none overflow-hidden"></textarea></label>
+                <label class="block"><span class="block text-xs font-semibold text-slate-700 mb-1.5">Título de la oferta</span><input id="client-catalog-offer-title" oninput="updateClientCatalogDraft()" type="text" placeholder="Oferta especial" class="w-full px-3 py-2.5 text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"></label>
+                <label class="block"><span class="block text-xs font-semibold text-slate-700 mb-1.5">Texto del botón</span><input id="client-catalog-offer-cta" oninput="updateClientCatalogDraft()" type="text" placeholder="Ver productos" class="w-full px-3 py-2.5 text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"></label>
+                <label class="block"><span class="block text-xs font-semibold text-slate-700 mb-1.5">Inicio</span><input id="client-catalog-offer-start" oninput="updateClientCatalogDraft()" type="date" class="w-full px-3 py-2.5 text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"></label>
+                <label class="block"><span class="block text-xs font-semibold text-slate-700 mb-1.5">Fin</span><input id="client-catalog-offer-end" oninput="updateClientCatalogDraft()" type="date" class="w-full px-3 py-2.5 text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"></label>
+              </div>
+            </div>
+            <div class="mt-6 pt-5 border-t border-slate-100 flex flex-wrap gap-2">
+              <button onclick="saveClientCatalogDraft()" class="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition"><i class="fa-solid fa-floppy-disk mr-1.5"></i>Guardar borrador</button>
+              <button onclick="testClientCatalogGs()" id="btn-test-client-gs" class="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition"><i class="fa-solid fa-plug mr-1.5"></i>Probar su GS</button>
+              <button onclick="publishClientCatalogToGs()" id="btn-publish-client-gs" class="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm transition"><i class="fa-solid fa-cloud-arrow-up mr-1.5"></i>Publicar en su GS</button>
+              <button onclick="notifyDeveloper('clientes')" class="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm transition"><i class="fa-brands fa-whatsapp mr-1.5"></i>Avisar al desarrollador</button>
+            </div>
+            <p id="client-gs-status" class="mt-2 text-xs font-semibold"></p>
+            <p class="mt-1 text-[11px] text-slate-400">Sube lo ya descargado (código, descripción, foto) al GS propio del vendedor. Sin precios. Su catálogo queda solo para sus clientes y el pedido llega a su WhatsApp.</p>
+          </div>
+          <div class="bg-amber-50 border border-amber-200 text-amber-900 p-4 rounded-2xl text-xs leading-relaxed"><i class="fa-solid fa-circle-info mr-1.5"></i><strong>Publicación segura:</strong> este portal prepara únicamente el paquete público. El endpoint público debe ser el Apps Script independiente que solo lee ese paquete depurado.</div>
+        </div>
+        <div class="w-full lg:w-2/5 lg:sticky lg:top-5">
+          <div class="bg-slate-900 rounded-[2rem] p-2 max-w-[360px] mx-auto shadow-xl">
+              <div class="bg-slate-50 rounded-[1.55rem] overflow-hidden min-h-[590px]">
+              <div class="bg-white px-4 pt-5 pb-3"><div class="flex items-center justify-between"><span class="font-black text-slate-900 tracking-tight flex items-center gap-2"><img id="preview-logo" src="" alt="" class="hidden w-8 h-8 rounded-full object-cover">Dist. <span class="text-orange-500">Castro</span></span><span id="preview-advisor" class="text-[10px] font-semibold bg-blue-50 text-blue-700 px-2 py-1 rounded-full">Tu asesor</span></div><div class="mt-3 bg-slate-100 rounded-xl px-3 py-2.5 text-[11px] text-slate-400"><i class="fa-solid fa-magnifying-glass mr-2"></i>Buscar productos</div></div>
+              <div id="preview-chips" class="px-3 py-3 flex gap-1.5 overflow-hidden bg-white"><span class="px-2.5 py-1 text-[10px] font-bold rounded-full bg-slate-900 text-white">Todos</span></div>
+              <div id="preview-hero" class="mx-3 mt-3 p-4 rounded-2xl text-white bg-gradient-to-br from-blue-600 to-indigo-800"><p class="text-[10px] uppercase tracking-wider font-bold text-blue-100">Catálogo de productos</p><h3 id="preview-headline" class="text-xl leading-tight font-extrabold mt-1">Descubrí lo que tenemos para vos</h3></div>
+              <div id="preview-products" class="p-3 grid grid-cols-2 gap-2"></div>
+              <div id="preview-offer" class="hidden mx-4 mb-4 rounded-xl overflow-hidden bg-white border border-slate-200 shadow-lg"><img id="preview-offer-image" class="w-full h-28 object-cover hidden" alt="Oferta"><div class="p-3"><p id="preview-offer-title" class="text-xs font-bold text-slate-800">Oferta especial</p><button id="preview-offer-cta" class="mt-2 px-3 py-1.5 text-[10px] font-bold rounded-lg bg-blue-600 text-white">Ver productos</button></div></div>
+            </div>
+          </div>
+          <p class="text-center text-[11px] text-slate-400 mt-3">Vista previa del catálogo del vendedor seleccionado</p>
+        </div>
+      </div>
+    </section>
+
+<!-- TAB: CONFIGURACIÓN (link sincronizado para todo) -->
+    <section id="tab-config" class="tab-content hidden space-y-6">
+
+      <!-- Conexión central con Google Sheets -->
+      <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+          <div>
+            <h2 class="text-lg font-bold text-slate-900">Conexión central con Google Sheets</h2>
+            <p class="text-xs text-slate-500">Este es el único link de sincronización. Todo (fotos, descargas, vendedores, maestros y publicación) sale de aquí. Sin este link nada se descarga.</p>
+          </div>
+          <span id="config-conn-badge" class="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200">Sin configurar</span>
+        </div>
+
+        <div class="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-4 items-end">
+          <div class="lg:col-span-2">
+            <label class="block text-xs font-semibold text-slate-700 mb-1">URL de la Aplicación Web de Google Apps Script</label>
+            <input type="text" id="input-sheets-url" placeholder="https://script.google.com/macros/s/.../exec" class="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div class="flex gap-2 flex-wrap">
+            <button onclick="saveSheetsConnection()" class="px-4 py-2.5 bg-slate-900 hover:bg-slate-700 text-white rounded-xl text-xs font-semibold shadow-sm transition flex-1 flex items-center justify-center gap-1.5">
+              <i class="fa-solid fa-floppy-disk"></i>
+              <span>Guardar Conexión</span>
+            </button>
+            <button onclick="forgetSheetsConnection()" class="px-4 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-semibold transition flex items-center justify-center gap-1.5" title="Olvida la URL y toda la caché de este equipo">
+              <i class="fa-solid fa-unlink"></i>
+              <span>Olvidar</span>
+            </button>
+          </div>
+        </div>
+        <div class="mt-3 flex flex-wrap gap-2">
+          <a href="../google-sheets-script/README.md" target="_blank" class="text-xs text-blue-600 hover:underline flex items-center gap-1">
+            <i class="fa-solid fa-file-lines"></i>
+            <span>Ver instrucciones de Apps Script</span>
+          </a>
+        </div>
+      </div>
+
+      <!-- Estado de links del Sheet -->
+      <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+          <div>
+            <h2 class="text-lg font-bold text-slate-900">Links en el Sheet</h2>
+            <p class="text-xs text-slate-500">Leídos de la hoja <strong>"Descargas"</strong> (genéricos y por vendedor con su <code class="bg-slate-100 px-1 py-0.5 rounded">usuario=</code>). Solo lectura: se pegan directo en el Excel.</p>
+          </div>
+          <button onclick="loadDownloadLinks()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-medium transition flex items-center gap-1.5">
+            <i class="fa-solid fa-arrows-rotate"></i>
+            <span>Recargar estado</span>
+          </button>
+        </div>
+        <div class="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3" id="config-links-master"></div>
+        <div class="mt-4">
+          <p class="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">Por vendedor</p>
+          <div id="config-links-vendors" class="grid grid-cols-1 sm:grid-cols-2 gap-2"></div>
+        </div>
+      </div>
+
+      <!-- Avisos al desarrollador -->
+      <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div class="pb-4 border-b border-slate-100">
+          <h2 class="text-lg font-bold text-slate-900">Avisos al desarrollador</h2>
+          <p class="text-xs text-slate-500">Los administrativos no suben archivos: con un toque se abre WhatsApp con el resumen listo para que el desarrollador suba los cambios.</p>
+        </div>
+        <div class="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-4 items-end">
+          <div class="lg:col-span-2">
+            <label class="block text-xs font-semibold text-slate-700 mb-1">WhatsApp del desarrollador (con código de país, solo números)</label>
+            <input type="tel" id="input-dev-whatsapp" placeholder="50688887777" class="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div class="flex gap-2">
+            <button onclick="saveDevWhatsapp()" class="px-4 py-2.5 bg-slate-900 hover:bg-slate-700 text-white rounded-xl text-xs font-semibold shadow-sm transition flex-1 flex items-center justify-center gap-1.5">
+              <i class="fa-solid fa-floppy-disk"></i>
+              <span>Guardar</span>
+            </button>
+            <button onclick="notifyDeveloper('preventa')" class="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-sm transition flex-1 flex items-center justify-center gap-1.5">
+              <i class="fa-brands fa-whatsapp"></i>
+              <span>Avisar ahora</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Nombre de la empresa -->
+      <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div class="pb-4 border-b border-slate-100">
+          <h2 class="text-lg font-bold text-slate-900">Nombre y logo de la empresa</h2>
+          <p class="text-xs text-slate-500">El admin muestra el logo del repositorio (<code class="bg-slate-100 px-1 py-0.5 rounded">images/logo-castro.png</code>). El link público de abajo alimenta a preventa y catálogo de clientes.</p>
+        </div>
+        <div class="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-4 items-end">
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">Nombre visible</label>
+            <input type="text" id="input-company-name" placeholder="Ej: Mi empresa" class="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">Link público del logo (como las fotos de productos)</label>
+            <input type="url" id="input-logo-url" placeholder="https://..." class="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div class="flex gap-2 items-center">
+            <img id="brand-preview" src="" alt="" class="hidden w-11 h-11 rounded-xl object-cover border border-slate-200">
+            <button onclick="saveCompanyName()" class="flex-1 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm transition flex items-center justify-center gap-1.5">
+              <i class="fa-solid fa-floppy-disk"></i>
+              <span>Guardar Marca</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- Modal primer uso: nombre y logo de la empresa -->
+  <div id="first-run-modal" class="hidden fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl">
+      <div class="text-center mb-4">
+        <div class="w-14 h-14 rounded-2xl bg-blue-600 text-white flex items-center justify-center text-2xl mx-auto mb-2">
+          <i class="fa-solid fa-store"></i>
+        </div>
+        <h2 class="text-base font-extrabold text-slate-900">Configura tu empresa</h2>
+        <p class="text-xs text-slate-500">Se guarda en este navegador. Podrás cambiarlo en Configuración.</p>
+      </div>
+      <div class="space-y-3">
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">Nombre de la empresa *</label>
+          <input type="text" id="first-company-name" placeholder="Ej: Mi Distribuidora" class="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">Link público del logo (opcional)</label>
+          <input type="url" id="first-logo-url" placeholder="https://..." class="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500">
+        </div>
+        <p id="first-run-error" class="hidden text-xs text-rose-600 font-medium"></p>
+        <button onclick="saveFirstRunBrand()" class="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-xl transition">Guardar y continuar</button>
+        <button onclick="closeFirstRun()" class="w-full py-2 text-xs font-semibold text-slate-500 hover:text-slate-700 transition">Ahora no</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Photo Preview Modal -->
+  <div id="photo-preview-modal" class="hidden fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+    <div class="relative max-w-2xl w-full bg-white rounded-2xl overflow-hidden shadow-2xl">
+      <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+        <div>
+          <h4 id="preview-title" class="text-sm font-bold text-slate-900">Vista Previa de Foto</h4>
+          <p id="preview-subtitle" class="text-xs text-slate-500"></p>
+        </div>
+        <button onclick="closePhotoPreview()" class="text-slate-400 hover:text-slate-600 text-lg p-1">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <div class="p-6 bg-slate-950 flex items-center justify-center min-h-[350px]">
+        <img id="preview-img" src="" alt="Producto" class="max-h-[450px] object-contain rounded-lg shadow-md">
+      </div>
+    </div>
+  </div>
+
+  <!-- Standalone Data & Scripts -->
+  <script src="./catalog_data.js"></script>
+  <script src="../shared-data/catalog_data.js"></script>
+  <script src="admin.js"></script>
+</body>
+</html>
