@@ -2,12 +2,11 @@
  * Admin Portal - Service Worker
  * 100% Offline: Shell administrativo, datos de catálogo, estilos y CDNs en caché local.
  */
-const CACHE_NAME = 'admin-portal-v1.1';
+const CACHE_NAME = 'admin-portal-v1.2';
 const ASSETS_TO_CACHE = [
   './index.html',
   './styles.css',
   './admin.js',
-  './catalog_data.js',
   './manifest.json',
   './logo.png',
   './icon-192.png',

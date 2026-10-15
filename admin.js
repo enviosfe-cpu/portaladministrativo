@@ -27,6 +27,80 @@ let state = {
   selectedClientCatalogSeller: ''
 };
 
+// =============================================================
+// ALMACENAMIENTO PERSISTENTE (INDEXEDDB - SIN LÍMITE DE 5MB)
+// =============================================================
+const IDB_NAME = 'ecomdx_admin_db';
+const IDB_VERSION = 1;
+const IDB_STORE = 'catalog_cache';
+
+function openAdminDb() {
+  return new Promise((resolve) => {
+    if (typeof window === 'undefined' || !window.indexedDB) return resolve(null);
+    try {
+      const req = indexedDB.open(IDB_NAME, IDB_VERSION);
+      req.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains(IDB_STORE)) {
+          db.createObjectStore(IDB_STORE);
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => resolve(null);
+    } catch (e) {
+      resolve(null);
+    }
+  });
+}
+
+async function idbGet(key) {
+  try {
+    const db = await openAdminDb();
+    if (!db) return null;
+    return new Promise((resolve) => {
+      const tx = db.transaction(IDB_STORE, 'readonly');
+      const store = tx.objectStore(IDB_STORE);
+      const req = store.get(key);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
+    });
+  } catch (e) {
+    return null;
+  }
+}
+
+async function idbSet(key, value) {
+  try {
+    const db = await openAdminDb();
+    if (!db) return false;
+    return new Promise((resolve) => {
+      const tx = db.transaction(IDB_STORE, 'readwrite');
+      const store = tx.objectStore(IDB_STORE);
+      const req = store.put(value, key);
+      req.onsuccess = () => resolve(true);
+      req.onerror = () => resolve(false);
+    });
+  } catch (e) {
+    return false;
+  }
+}
+
+async function idbDelete(key) {
+  try {
+    const db = await openAdminDb();
+    if (!db) return false;
+    return new Promise((resolve) => {
+      const tx = db.transaction(IDB_STORE, 'readwrite');
+      const store = tx.objectStore(IDB_STORE);
+      const req = store.delete(key);
+      req.onsuccess = () => resolve(true);
+      req.onerror = () => resolve(false);
+    });
+  } catch (e) {
+    return false;
+  }
+}
+
 // Links privados de descarga: NO van quemados en código.
 // Se cargan desde Google Sheet (pestaña Descargas) o caché local del equipo.
 // Genéricos: products, clients, discounts, cabys.
@@ -98,6 +172,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadInitialData();
   await loadDownloadLinks();
   loadClientCatalogConfigs();
+  try { if (state.sheetsUrl) await loadClientCatalogFromMainSheet(true); } catch (e) {}
   // Maestros desde el inicio para que siempre viajen al publicar
   try { await loadMaestros(); } catch (e) {}
   // Nombre de empresa para encabezado
@@ -105,6 +180,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   try { await loadCompanyName(); } catch (e) {}
   applyCompanyName();
   maybeShowFirstRun();
+  maybeShowSetupChoice();
 });
 
 /**
@@ -116,14 +192,37 @@ async function loadInitialData() {
 
   let data = null;
 
-  // Única fuente automática: última sincronización guardada en este equipo
+  // 1. Intentar cargar desde IndexedDB (almacenamiento persistente sin límite de 5MB)
   try {
-    const raw = localStorage.getItem('ecomdx_published_catalog');
-    if (raw) {
-      data = JSON.parse(raw);
-      logSync("Datos cargados desde la caché local (última sincronización).");
+    data = await idbGet('published_catalog');
+    if (data) {
+      logSync("Datos cargados desde almacenamiento local persistente (IndexedDB).");
     }
   } catch (e) {}
+
+  // 2. Fallback a localStorage si no estaba en IndexedDB (ej. versión previa)
+  if (!data) {
+    try {
+      const raw = localStorage.getItem('ecomdx_published_catalog');
+      if (raw) {
+        data = JSON.parse(raw);
+        logSync("Datos cargados desde la caché local (localStorage).");
+        // Migrar a IndexedDB para que en adelante nunca falle
+        idbSet('published_catalog', data).catch(() => {});
+      }
+    } catch (e) {}
+  }
+
+  // 3. Si no hay datos en caché local pero hay Sheets URL configurada, descargar del Sheet automáticamente
+  if (!data && state.sheetsUrl && navigator.onLine) {
+    logSync("Sin caché local previa. Cargando datos desde Google Sheet...");
+    try {
+      await syncFromSheetSnapshot();
+      return;
+    } catch (e) {
+      logSync("No se pudo cargar desde Sheet en inicio: " + e.message);
+    }
+  }
 
   if (!data) {
     logSync("Sin caché local. Configure el link en Configuración y pulse Actualizar Información.");
@@ -144,19 +243,24 @@ async function loadInitialData() {
     if (data.vendedores) state.vendedores = data.vendedores;
     logSync("Caché restaurada con datos por vendedor incluidos.");
     
-    // Cargar imágenes: fusionar base del bundle con guardadas (guardadas prevalecen por código)
+    // Cargar imágenes: IndexedDB -> localStorage -> bundle
     const baseImages = data.sampleImages || data.images || {};
     let saved = {};
     try {
-      const savedImages = localStorage.getItem('ecomdx_images');
-      if (savedImages) saved = JSON.parse(savedImages) || {};
+      saved = (await idbGet('images')) || {};
+      if (!Object.keys(saved).length) {
+        const savedImages = localStorage.getItem('ecomdx_images');
+        if (savedImages) saved = JSON.parse(savedImages) || {};
+      }
     } catch (e) { saved = {}; }
     state.images = { ...baseImages, ...saved };
-    // Si el bundle trae más fotos que el caché, actualizar caché
-    if (Object.keys(state.images).length > Object.keys(saved).length) {
-      try { localStorage.setItem('ecomdx_images', JSON.stringify(state.images)); } catch (e) {}
-    }
     
+    // Restaurar hora de última sincronización si viene en el snapshot
+    if (data.publishedAt) {
+      const lastRun = document.getElementById('sync-last-run');
+      if (lastRun) lastRun.textContent = new Date(data.publishedAt).toLocaleString();
+    }
+
     logSync(`Datos cargados con éxito: ${state.products.length} productos, ${state.clients.length} clientes, ${state.discounts.length} descuentos, ${Object.keys(state.cabysMap).length} CABYS.`);
     updateDashboardUI();
     renderPhotosTable();
@@ -270,20 +374,127 @@ function switchTab(tabName) {
   } else if (tabName === 'client-catalog') {
     renderClientCatalogEditor();
     if (state.vendedores.length === 0 && state.sheetsUrl) loadVendedores().then(() => renderClientCatalogEditor()).catch(() => {});
+    if (state.sheetsUrl) loadClientCatalogFromMainSheet(true).catch(() => {});
   }
 }
 
 /**
- * Sincronización interna de todas las APIs (proceso interno, sin pestaña visible)
- * Flujo: 1) verifica links en Google Sheet (hoja Descargas),
- * 2) limpia caché de datos antiguos, 3) descarga todo fresco.
+ * Carga ultra rápida de información directamente desde la hoja Snapshot del Google Sheet
+ * en una sola petición HTTP (sin consultar el ERP ni ralentizar).
  */
-async function syncAllApis() {
+async function syncFromSheetSnapshot() {
+  const btn = document.getElementById('btn-sync-sheet');
+  const originalLabel = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-amber-300"></i><span>Cargando del Sheet...</span>`;
+  }
+
+  const inputUrl = (document.getElementById('input-sheets-url')?.value || "").trim();
+  if (inputUrl && inputUrl !== state.sheetsUrl) {
+    state.sheetsUrl = inputUrl;
+    try { localStorage.setItem('ecomdx_sheets_url', inputUrl); } catch (e) {}
+  }
+  if (!state.sheetsUrl) {
+    showAlert("Primero configure el link de sincronización en la pestaña Configuración.", "warning");
+    switchTab('config');
+    if (btn) { btn.disabled = false; btn.innerHTML = originalLabel; }
+    return;
+  }
+
+  setSyncStatus('Consultando datos guardados en el Google Sheet...');
+  logSync("========================================");
+  logSync("[RÁPIDO] Descargando catálogo directamente desde Google Sheet...");
+
+  try {
+    try { await loadVendedores(); } catch (e) {}
+
+    // 1. Obtener instantánea de la hoja Snapshot del Sheet
+    const res = await fetch(`${state.sheetsUrl}?action=snapshot_all`);
+    const json = await res.json();
+
+    if (json.status !== "success" || !json.data || !json.data.vendors || Object.keys(json.data.vendors).length === 0) {
+      logSync("[AVISO] El Sheet aún no tiene datos en la hoja Snapshot.");
+      setSyncStatus('Sheet sin datos previos. Ejecuta "Descargar del ERP" para la primera carga.');
+      showAlert("El Sheet aún no tiene datos guardados. Presiona 'Descargar del ERP y Guardar en Sheet' para la primera carga.", "warning");
+      return;
+    }
+
+    state.vendorData = json.data.vendors;
+    state.vendorCounts = {};
+    state.vendorClients = {};
+
+    Object.keys(state.vendorData).forEach(ven => {
+      const d = state.vendorData[ven];
+      state.vendorClients[ven] = d.clients || [];
+      state.vendorCounts[ven] = {
+        products: (d.products || []).length,
+        clients: (d.clients || []).length,
+        discounts: (d.discounts || []).length,
+        cabys: Object.keys(d.cabysMap || {}).length,
+        ok: true,
+        fails: []
+      };
+    });
+
+    consolidateVendorData();
+
+    // 2. Traer fotos del Sheet
+    try {
+      const resImg = await fetch(`${state.sheetsUrl}?action=get_images`);
+      const jsonImg = await resImg.json();
+      if (jsonImg.status === "success" && jsonImg.images) {
+        state.images = jsonImg.images;
+        try { localStorage.setItem('ecomdx_images', JSON.stringify(state.images)); } catch (e) {}
+      }
+    } catch (e) {}
+
+    // 3. Traer configuraciones de catálogos cliente del Sheet
+    try {
+      const resCC = await fetch(`${state.sheetsUrl}?action=get_client_catalogs`);
+      const jsonCC = await resCC.json();
+      if (jsonCC.status === "success" && jsonCC.clientCatalogs) {
+        state.clientCatalogConfigs = { ...(state.clientCatalogConfigs || {}), ...jsonCC.clientCatalogs };
+        try { localStorage.setItem('ecomdx_client_catalog_configs', JSON.stringify(state.clientCatalogConfigs)); } catch (e) {}
+        renderClientCatalogEditor();
+      }
+    } catch (e) {}
+
+    const now = new Date().toLocaleString();
+    const lastRun = document.getElementById('sync-last-run');
+    if (lastRun) lastRun.textContent = now;
+
+    const nVen = Object.keys(state.vendorCounts).length;
+    setSyncStatus(`¡Listo en segundos! ${state.products.length} prod. • ${state.clients.length} cli. • ${state.discounts.length} dto. • ${Object.keys(state.cabysMap).length} CABYS (desde Sheet).`);
+    logSync(`[ÉXITO] ${state.products.length} productos y ${state.clients.length} clientes cargados desde el Sheet.`);
+    showAlert(`Datos cargados desde Google Sheet con éxito (${nVen} vendedores).`, "success");
+
+    updateDashboardUI();
+    if (state.activeTab === 'images') renderPhotosTable();
+    if (state.activeTab === 'clients') renderClientsTable();
+
+    saveCachedSnapshot();
+  } catch (err) {
+    logSync(`[ERROR] No se pudo leer del Sheet: ${err.message}`);
+    setSyncStatus('Error leyendo datos del Sheet. Verifica conexión.');
+    showAlert(`Error leyendo del Sheet: ${err.message}`, "warning");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = originalLabel || `<i class="fa-solid fa-bolt text-amber-300"></i><span>Cargar Información desde Sheet</span>`;
+    }
+  }
+}
+
+/**
+ * Sincronización completa desde el ERP (descarga por vendedor y guarda en Sheet).
+ */
+async function syncAllApis(forceUpload = false) {
   const btn = document.getElementById('btn-sync-all');
   const originalLabel = btn ? btn.innerHTML : '';
   if (btn) {
     btn.disabled = true;
-    btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i><span>Verificando links...</span>`;
+    btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i><span>Descargando ERP...</span>`;
   }
   // Tomar la URL del campo por si no se pulsó Cargar antes
   const inputUrl = (document.getElementById('input-sheets-url')?.value || "").trim();
@@ -297,11 +508,12 @@ async function syncAllApis() {
     setSyncStatus('Sin conexión. Configure el link en la pestaña Configuración.');
     showAlert("Primero configure el link de sincronización en la pestaña Configuración.", "warning");
     switchTab('config');
+    if (btn) { btn.disabled = false; btn.innerHTML = originalLabel; }
     return;
   }
   setSyncStatus('Verificando links en Google Sheet (hoja Descargas)...');
   logSync("========================================");
-  logSync("[INICIO] Actualización interna de información...");
+  logSync("[INICIO] Descarga desde el ERP hacia Google Sheet...");
 
   try {
     // 1. Verificar links de vendedores frescos (solo vendedores, sin link central)
@@ -319,8 +531,8 @@ async function syncAllApis() {
     }
 
     // 2. Limpiar caché de datos antiguos (se conserva copia de respaldo por seguridad)
-    if (btn) btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i><span>Limpiando caché...</span>`;
-    setSyncStatus('Limpiando caché de datos antiguos...');
+    if (btn) btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i><span>Descargando...</span>`;
+    setSyncStatus('Descargando datos por vendedor...');
     const backup = {
       products: state.products,
       clients: state.clients,
@@ -338,10 +550,9 @@ async function syncAllApis() {
     state.vendorClients = {};
     state.vendorCounts = {};
     try { localStorage.removeItem('ecomdx_published_catalog'); } catch (e) {}
-    logSync("Caché anterior limpiada. Descargando por vendedor...");
 
-    // 3. Descarga por vendedor y consolidado (sin link central)
-    await syncVendorsData(btn);
+    // 3. Descarga por vendedor y consolidado
+    await syncVendorsData(btn, backup);
     consolidateVendorData();
 
     if (state.products.length === 0 && state.clients.length === 0) {
@@ -366,14 +577,13 @@ async function syncAllApis() {
     const lastRun = document.getElementById('sync-last-run');
     if (lastRun) lastRun.textContent = now;
     const nVen = Object.keys(state.vendorCounts).length;
-    setSyncStatus(`Actualizado: ${state.products.length} prod. • ${state.clients.length} cli. • ${state.discounts.length} dto. • ${Object.keys(state.cabysMap).length} CABYS • ${nVen} vendedores.`);
-    showAlert(`Información actualizada y consolidada de ${nVen} vendedor(es).`, "success");
+    setSyncStatus(`Actualizado: ${state.products.length} prod. • ${state.clients.length} cli. • ${state.discounts.length} dto. • ${Object.keys(state.cabysMap).length} CABYS.`);
+    showAlert(`Información descargada del ERP y guardada en Sheet para ${nVen} vendedor(es).`, "success");
     updateDashboardUI();
     if (state.activeTab === 'images') renderPhotosTable();
     if (state.activeTab === 'clients') renderClientsTable();
 
-    // 5. Fotos del Sheet (antes solo con el botón Cargar)
-    // El Sheet es la fuente autoritativa: reemplaza, no mezcla con caché vieja
+    // 5. Fotos del Sheet
     if (btn) btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i><span>Descargando fotos...</span>`;
     setSyncStatus('Descargando fotos del Sheet...');
     try {
@@ -383,8 +593,6 @@ async function syncAllApis() {
         state.images = json.images;
         try { localStorage.setItem('ecomdx_images', JSON.stringify(state.images)); } catch (e) {}
         logSync(`Fotos actualizadas: ${Object.keys(json.images).length} productos con foto en el Sheet.`);
-      } else {
-        logSync("Fotos: respuesta inválida del Sheet, se conservan las locales.");
       }
     } catch (e) {
       logSync(`Fotos: no se pudieron descargar (${e.message}), se conservan las locales.`);
@@ -400,7 +608,7 @@ async function syncAllApis() {
   } finally {
     if (btn) {
       btn.disabled = false;
-      btn.innerHTML = originalLabel || `<i class="fa-solid fa-arrows-rotate"></i><span>Actualizar Información</span>`;
+      btn.innerHTML = originalLabel || `<i class="fa-solid fa-arrows-rotate"></i><span>Descargar del ERP y Guardar en Sheet</span>`;
     }
   }
 }
@@ -409,17 +617,97 @@ async function syncAllApis() {
  * Descarga los datos propios de cada vendedor (links api_<tipo>_<VENDEDOR>)
  * y guarda el detalle completo por vendedor. Los tipos sin link se omiten.
  */
-async function fetchVendorType(type, vendor) {
-  const res = await fetch(`${state.sheetsUrl}?action=fetch&type=${type}&v=${encodeURIComponent(vendor)}`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const json = await res.json();
-  if (json.status !== "success" || !Array.isArray(json.items)) {
-    throw new Error((json && json.message) || "Respuesta inválida del Sheet");
+/**
+ * Sube manualmente lo descargado a la hoja Snapshot del Sheet
+ * (por vendedor y tipo). No va al ERP.
+ */
+async function uploadSnapshot() {
+  if (!state.sheetsUrl) {
+    showAlert("Primero configure el link en Configuración.", "warning");
+    switchTab('config');
+    return;
   }
-  return json.items;
+  const vendors = Object.keys(state.vendorData || {});
+  if (!vendors.length) {
+    showAlert("No hay datos descargados. Pulse Actualizar Información primero.", "warning");
+    return;
+  }
+  const btn = document.getElementById('btn-upload-snapshot');
+  if (btn) btn.disabled = true;
+  const toItems = (ven, type) => {
+    const d = state.vendorData[ven] || {};
+    if (type === 'cabys') {
+      return Object.keys(d.cabysMap || {}).map(k => d.cabysMap[k]);
+    }
+    return d[type] || [];
+  };
+  try {
+    for (const ven of vendors) {
+      setSyncStatus(`Subiendo instantánea de ${ven}...`);
+      for (const t of ["products", "clients", "discounts", "cabys"]) {
+        await saveSnapshotChunked(t, ven, toItems(ven, t));
+      }
+      logSync(`[${ven}] Instantánea subida.`);
+    }
+    setSyncStatus(`Instantánea subida: ${vendors.length} vendedor(es).`);
+    showAlert(`Instantánea subida al Sheet: ${vendors.join(", ")}.`, "success");
+  } catch (e) {
+    showAlert(`No se pudo subir: ${e.message}`, "warning");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
-async function syncVendorsData(btn) {
+/**
+ * Guarda instantánea en el Sheet; si el lote completo falla por tamaño,
+ * reintenta por partes de 150 registros.
+ */
+async function saveSnapshotChunked(type, ven, items) {
+  const post = async (chunk, append) => {
+    const res = await fetch(state.sheetsUrl, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "save_snapshot", vendor: ven, tipo: type, items: chunk, append: !!append })
+    });
+    let json = null;
+    try { json = await res.json(); } catch (e) { throw new Error("El GS no devolvió JSON (¿Nueva versión con save_snapshot?)"); }
+    if (!json || json.status !== "success") {
+      throw new Error((json && json.message) || "El GS rechazó el guardado");
+    }
+    return json.count || 0;
+  };
+  try {
+    await post(items, false);
+    return;
+  } catch (e) {
+    console.warn(`snapshot ${type}/${ven} lote completo falló, por partes:`, e.message);
+  }
+  for (let i = 0; i < items.length; i += 150) {
+    await post(items.slice(i, i + 150), i > 0);
+  }
+}
+
+async function fetchVendorType(type, vendor) {  let lastErr = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const res = await fetch(`${state.sheetsUrl}?action=fetch&type=${type}&v=${encodeURIComponent(vendor)}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      if (json.status !== "success" || !Array.isArray(json.items)) {
+        throw new Error((json && json.message) || "Respuesta inválida del Sheet");
+      }
+      return json.items;
+    } catch (e) {
+      lastErr = e;
+      await new Promise(r => setTimeout(r, 1500 * attempt));
+    }
+  }
+  throw lastErr;
+}
+
+async function syncVendorsData(btn, backup) {
+  const prev = (backup && backup.vendorData) || {};
+  const prevClients = (backup && backup.vendorClients) || {};
   const vendors = getVendorCodes().filter(v => {
     const l = (VENDOR_ENDPOINTS[v] || {});
     return l.products || l.clients || l.discounts || l.cabys;
@@ -454,10 +742,31 @@ async function syncVendorsData(btn) {
         } else {
           data[type] = items;
         }
-        logSync(`[${ven}] ${label}: ${items.length} registros.`);
+        // Guardar instantánea rápida en el Sheet (para no ir al ERP siempre)
+        await saveSnapshotChunked(type, ven, items);
+        if (!items.length) {
+          // Vacío: conservar lo anterior de ese vendedor si había
+          const old = type === 'cabys' ? prev[ven]?.cabysMap : (type === 'clients' ? prevClients[ven] : prev[ven]?.[type]);
+          const hasOld = type === 'cabys' ? old && Object.keys(old).length : old && old.length;
+          if (hasOld) {
+            if (type === 'cabys') data.cabysMap = old;
+            else data[type] = old;
+            logSync(`[${ven}] ${label}: vacío, se conserva lo anterior (${type === 'cabys' ? Object.keys(old).length : old.length}).`);
+          } else {
+            logSync(`[${ven}] ${label}: vacío.`);
+          }
+        } else {
+          logSync(`[${ven}] ${label}: ${items.length} registros.`);
+        }
       } catch (e) {
         fails.push(label);
-        logSync(`[${ven}] ${label} falló: ${e.message}`);
+        logSync(`[${ven}] ${label} falló: ${e.message} (se conserva lo anterior).`);
+        const old = type === 'cabys' ? prev[ven]?.cabysMap : (type === 'clients' ? prevClients[ven] : prev[ven]?.[type]);
+        if (type === 'cabys') {
+          if (old && Object.keys(old).length) data.cabysMap = old;
+        } else if (old && old.length) {
+          data[type] = old;
+        }
       }
     }
     state.vendorData[ven] = data;
@@ -467,7 +776,8 @@ async function syncVendorsData(btn) {
       clients: data.clients.length,
       discounts: data.discounts.length,
       cabys: Object.keys(data.cabysMap).length,
-      ok: fails.length === 0
+      ok: fails.length === 0,
+      fails: fails
     };
     renderVendorSyncList();
   }
@@ -534,7 +844,7 @@ function renderVendorSyncList() {
       : c.ok
         ? `<span class="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">${c.clients} clientes</span>`
         : `<span class="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">Error</span>`;
-    const detail = c && c.ok ? `${c.products} prod. • ${c.discounts} dto. • ${c.cabys} CABYS` : (c ? "Revisa sus links en Descargas" : "Se descarga con Actualizar Información");
+    const detail = c && c.ok ? `${c.products} prod. • ${c.discounts} dto. • ${c.cabys} CABYS` : (c ? `Falló: ${(c.fails || []).join(", ") || "ver log"}` : "Se descarga con Actualizar Información");
     return `
       <div class="flex items-center justify-between gap-2 text-xs p-2.5 rounded-xl bg-slate-50 border border-slate-100">
         <div class="min-w-0">
@@ -603,25 +913,39 @@ function renderVendorClientsChart() {
 /**
  * Guarda la sincronización en este equipo para abrir con datos sin red.
  */
-function saveCachedSnapshot() {
+async function saveCachedSnapshot() {
+  const snapshot = {
+    version: "1.0.0",
+    publishedAt: new Date().toISOString(),
+    config: { sheetsUrl: state.sheetsUrl || "", maestros: state.maestros },
+    products: state.products || [],
+    clients: state.clients || [],
+    discounts: state.discounts || [],
+    cabysMap: state.cabysMap || {},
+    images: state.images || {},
+    vendedores: state.vendedores || [],
+    vendorData: state.vendorData || {},
+    vendorClients: state.vendorClients || {},
+    vendorCounts: state.vendorCounts || {}
+  };
+
+  // 1. Guardar siempre en almacenamiento persistente IndexedDB (sin límite de 5MB)
   try {
-    localStorage.setItem('ecomdx_published_catalog', JSON.stringify({
-      version: "1.0.0",
-      publishedAt: new Date().toISOString(),
-      config: { sheetsUrl: state.sheetsUrl || "", maestros: state.maestros },
-      products: state.products,
-      clients: state.clients,
-      discounts: state.discounts,
-      cabysMap: state.cabysMap,
-      images: state.images,
-      vendedores: state.vendedores,
-      vendorData: state.vendorData,
-      vendorClients: state.vendorClients,
-      vendorCounts: state.vendorCounts
-    }));
+    await idbSet('published_catalog', snapshot);
+    if (state.images && Object.keys(state.images).length > 0) {
+      await idbSet('images', state.images);
+    }
+    logSync("Sincronización guardada en almacenamiento persistente.");
+  } catch (err) {
+    console.warn("Error en IndexedDB:", err);
+  }
+
+  // 2. Intentar guardar en localStorage si cabe (fallback)
+  try {
+    localStorage.setItem('ecomdx_published_catalog', JSON.stringify(snapshot));
     logSync("Sincronización guardada en caché local.");
   } catch (e) {
-    logSync("No se pudo guardar la caché local (almacenamiento lleno).");
+    // Si localStorage excede su cuota de 5MB, IndexedDB ya tiene los datos completos guardados
   }
 }
 
@@ -787,6 +1111,9 @@ async function saveSheetsConnection() {
   await loadDownloadLinks();
   await loadCompanyName();
   renderConfigStatus();
+  if ((state.products || []).length === 0) {
+    runFirstLoad();
+  }
 }
 
 async function forgetSheetsConnection() {
@@ -1703,16 +2030,105 @@ function updateClientCatalogLink() {
   if (el) el.textContent = state.selectedClientCatalogSeller ? clientCatalogUrl(state.selectedClientCatalogSeller) : "";
 }
 
-function saveClientCatalogDraft() {
+async function saveClientCatalogDraft() {
   const cfg = currentClientCatalogConfig();
   if (!cfg || !cfg.sellerCode) {
-    showAlert("Primero crea vendedores para configurar su catálogo.", "warning");
+    showAlert("Primero crea o selecciona un vendedor para configurar su catálogo.", "warning");
     return;
   }
   updateClientCatalogDraft();
   try { localStorage.setItem('ecomdx_client_catalog_configs', JSON.stringify(state.clientCatalogConfigs)); } catch (e) {}
-  showAlert('Borrador del catálogo cliente guardado en este panel.', 'success');
-  renderClientCatalogEditor();
+
+  const btn = document.getElementById('btn-save-client-draft');
+  const originalHtml = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-1.5"></i>Guardando en Sheet...`;
+  }
+  const st = document.getElementById('client-gs-status');
+
+  const mainUrl = (state.sheetsUrl || (document.getElementById('input-sheets-url')?.value || "")).trim();
+  if (!mainUrl) {
+    showAlert('Borrador guardado localmente (sin link de Google Sheet configurado).', 'success');
+    renderClientCatalogEditor();
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml || `<i class="fa-solid fa-floppy-disk mr-1.5"></i>Guardar borrador`;
+    }
+    return;
+  }
+
+  try {
+    const res = await fetch(mainUrl, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({
+        action: "save_client_catalogs",
+        configs: state.clientCatalogConfigs
+      })
+    });
+    const json = await res.json();
+    if (json.status === "success") {
+      showAlert(`Borrador y datos de ${cfg.sellerName || cfg.sellerCode} guardados en Google Sheet con éxito.`, "success");
+      if (st) {
+        st.textContent = `Guardado localmente y subido al Google Sheet principal (${new Date().toLocaleTimeString()}).`;
+        st.className = "mt-2 text-xs font-semibold text-emerald-600";
+      }
+    } else {
+      throw new Error(json.message || "Error al guardar en el Sheet");
+    }
+  } catch (err) {
+    showAlert(`Borrador guardado localmente (aviso Sheet: ${err.message})`, "warning");
+    if (st) {
+      st.textContent = `Guardado local. Aviso al subir al Sheet: ${err.message}`;
+      st.className = "mt-2 text-xs font-semibold text-amber-600";
+    }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml || `<i class="fa-solid fa-floppy-disk mr-1.5"></i>Guardar borrador`;
+    }
+    renderClientCatalogEditor();
+  }
+}
+
+const saveClientCatalogToMainSheet = saveClientCatalogDraft;
+
+/**
+ * Carga las configuraciones de los catálogos cliente de todos los vendedores
+ * desde la hoja principal de Google Sheets (pestaña Catalogo_Clientes).
+ */
+async function loadClientCatalogFromMainSheet(silent = false) {
+  const mainUrl = (state.sheetsUrl || (document.getElementById('input-sheets-url')?.value || "")).trim();
+  if (!mainUrl) {
+    if (!silent) showAlert("No hay URL de Google Sheet principal configurada.", "warning");
+    return;
+  }
+  const btn = document.getElementById('btn-load-client-sheet');
+  const originalHtml = btn ? btn.innerHTML : '';
+  if (btn && !silent) {
+    btn.disabled = true;
+    btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-1.5"></i>Cargando...`;
+  }
+  try {
+    const res = await fetch(`${mainUrl}?action=get_client_catalogs`);
+    const json = await res.json();
+    if (json.status === "success" && json.clientCatalogs) {
+      state.clientCatalogConfigs = { ...(state.clientCatalogConfigs || {}), ...json.clientCatalogs };
+      try { localStorage.setItem('ecomdx_client_catalog_configs', JSON.stringify(state.clientCatalogConfigs)); } catch (e) {}
+      renderClientCatalogEditor();
+      if (!silent) showAlert("Configuraciones de catálogos cliente cargadas desde Google Sheet principal.", "success");
+    } else {
+      throw new Error(json.message || "No se recibieron configuraciones del Sheet");
+    }
+  } catch (err) {
+    if (!silent) showAlert(`Error al cargar del Sheet principal: ${err.message}`, "warning");
+  } finally {
+    if (btn && !silent) {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml || `<i class="fa-solid fa-arrows-rotate mr-1.5"></i>Recargar del Sheet`;
+    }
+  }
 }
 
 /**
@@ -1818,6 +2234,10 @@ async function publishClientCatalogToGs() {
     if (!n) throw new Error("Su GS no reflejó los datos (¿Nueva versión desplegada con save_public?)");
     if (st) { st.textContent = `Publicado en su GS: ${n} productos con inventario (reemplazo total limpio).`; st.className = "mt-2 text-xs font-semibold text-emerald-600"; }
     showAlert(`Publicado con éxito en su GS: ${n} productos con inventario (productos anteriores eliminados).`, "success");
+    // Respaldar automáticamente la configuración del vendedor en el Sheet principal
+    if (state.sheetsUrl) {
+      saveClientCatalogToMainSheet(true).catch(() => {});
+    }
   } catch (e) {
     if (st) { st.textContent = `Error: ${e.message}`; st.className = "mt-2 text-xs font-semibold text-rose-600"; }
     showAlert(`No se pudo publicar en su GS: ${e.message}`, "warning");
@@ -1870,9 +2290,76 @@ async function copyClientCatalogLink() {
 }
 
 /**
- * Avisos al desarrollador: los administrativos no suben archivos.
- * Abre WhatsApp con el resumen listo para que el desarrollador suba los cambios.
+ * Respaldo de configuración (exportar/importar archivo local).
+ * Incluye links privados: archivo sensible, no compartir.
  */
+function exportConfigBackup() {
+  const data = {
+    app: "admin-portal",
+    version: "1.0.0",
+    exportedAt: new Date().toISOString(),
+    sheetsUrl: state.sheetsUrl || "",
+    downloadLinks: { ...API_ENDPOINTS, vendors: VENDOR_ENDPOINTS },
+    companyName: state.companyName || "",
+    brandLogo: state.brandLogo || "",
+    devWhatsapp: state.devWhatsapp || "",
+    clientCatalogConfigs: state.clientCatalogConfigs || {}
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `respaldo_config_admin_${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  showAlert("Respaldo exportado. Guárdelo en un lugar seguro.", "success");
+}
+
+function importConfigBackup(input) {
+  const file = input && input.files && input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      if (!data || typeof data !== "object" || data.app !== "admin-portal") {
+        throw new Error("Archivo inválido (no es respaldo del admin).");
+      }
+      if (data.sheetsUrl) {
+        state.sheetsUrl = String(data.sheetsUrl).trim();
+        try { localStorage.setItem('ecomdx_sheets_url', state.sheetsUrl); } catch (e) {}
+        const urlInput = document.getElementById('input-sheets-url');
+        if (urlInput) urlInput.value = state.sheetsUrl;
+      }
+      if (data.downloadLinks) setDownloadLinksCache(data.downloadLinks);
+      if (data.companyName !== undefined) {
+        state.companyName = String(data.companyName || "");
+        state.brandLogo = String(data.brandLogo || "");
+        try { localStorage.setItem('ecomdx_company_config', JSON.stringify({ companyName: state.companyName, logoUrl: state.brandLogo })); } catch (e) {}
+        applyCompanyName();
+      }
+      if (data.devWhatsapp !== undefined) {
+        state.devWhatsapp = String(data.devWhatsapp || "").replace(/\D/g, "");
+        try { localStorage.setItem('ecomdx_dev_whatsapp', state.devWhatsapp); } catch (e) {}
+        const devInput = document.getElementById('input-dev-whatsapp');
+        if (devInput) devInput.value = state.devWhatsapp;
+      }
+      if (data.clientCatalogConfigs) {
+        state.clientCatalogConfigs = data.clientCatalogConfigs;
+        try { localStorage.setItem('ecomdx_client_catalog_configs', JSON.stringify(state.clientCatalogConfigs)); } catch (e) {}
+      }
+      renderConfigStatus();
+      if (state.activeTab === 'client-catalog') renderClientCatalogEditor();
+      closeSetupChoice();
+      maybeShowFirstRun();
+      showAlert("Respaldo importado. Verifique en Configuración y sincronice.", "success");
+    } catch (e) {
+      showAlert(`No se pudo importar: ${e.message}`, "warning");
+    } finally {
+      input.value = "";
+    }
+  };
+  reader.readAsText(file);
+}
 function applyCompanyName() {
   const name = (state.companyName || "").trim();
   const h1 = document.getElementById('admin-company-name');
@@ -2019,6 +2506,136 @@ function closeFirstRun() {
   applyCompanyName();
 }
 
+/**
+ * Carga inicial guiada: con el link recién guardado, trae todo
+ * (empresa, links, vendedores, maestros, catálogo y fotos) con progreso.
+ */
+function prepStep(boxId, id, label) {
+  const box = document.getElementById(boxId || 'prep-steps');
+  if (!box) return;
+  let row = document.getElementById(id);
+  if (!row || row.parentElement !== box) {
+    row = document.createElement('div');
+    row.id = id;
+    row.className = "flex items-center gap-2.5 text-xs p-2.5 rounded-xl bg-slate-50 border border-slate-100";
+    box.appendChild(row);
+  }
+  row.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-blue-500"></i><span class="font-medium text-slate-600">${label}...</span>`;
+  return row;
+}
+
+function prepDone(id, ok, detail) {
+  const row = document.getElementById(id);
+  if (!row) return;
+  row.className = `flex items-center gap-2.5 text-xs p-2.5 rounded-xl ${ok ? "bg-emerald-50 border border-emerald-100" : "bg-rose-50 border border-rose-100"}`;
+  row.innerHTML = `<i class="fa-solid ${ok ? "fa-circle-check text-emerald-500" : "fa-circle-exclamation text-rose-500"}"></i><span class="font-medium ${ok ? "text-emerald-800" : "text-rose-800"}">${detail}</span>`;
+}
+
+/**
+ * Primeros pasos dentro de la misma ventana: guarda el link y
+ * prepara todo (empresa, links, vendedores, maestros, catálogo y fotos).
+ */
+async function startSetupWithLink() {
+  const url = (document.getElementById('setup-sheets-url')?.value || "").trim();
+  const btn = document.getElementById('btn-setup-start');
+  if (!url) {
+    showAlert("Pegue la URL del Google Apps Script (/exec).", "warning");
+    return;
+  }
+  state.sheetsUrl = url;
+  try { localStorage.setItem('ecomdx_sheets_url', url); } catch (e) {}
+  const cfgInput = document.getElementById('input-sheets-url');
+  if (cfgInput) cfgInput.value = url;
+  if (btn) btn.disabled = true;
+  document.getElementById('setup-steps').innerHTML = '';
+
+  prepStep('setup-steps', 'ss-company', 'Empresa y marca');
+  try {
+    await loadCompanyName();
+    prepDone('ss-company', !!(state.companyName || "").trim(), (state.companyName || "").trim() || "Sin nombre en el Sheet");
+  } catch (e) { prepDone('ss-company', false, "No se pudo leer"); }
+
+  prepStep('setup-steps', 'ss-links', 'Links de descarga');
+  try {
+    await loadDownloadLinks();
+    const n = ["products", "clients", "discounts", "cabys"].filter(k => (API_ENDPOINTS[k] || "").trim()).length;
+    const nv = Object.keys(VENDOR_ENDPOINTS || {}).length;
+    prepDone('ss-links', n === 4 || nv > 0, `${n}/4 genéricos • ${nv} vendedor(es) con links`);
+  } catch (e) { prepDone('ss-links', false, "No se pudieron leer"); }
+
+  prepStep('setup-steps', 'ss-sellers', 'Vendedores');
+  try {
+    await loadVendedores();
+    prepDone('ss-sellers', true, `${(state.vendedores || []).length} vendedor(es)`);
+  } catch (e) { prepDone('ss-sellers', false, "No se pudieron cargar"); }
+
+  prepStep('setup-steps', 'ss-catalog', 'Maestros y catálogo');
+  try {
+    await loadMaestros();
+    await syncAllApis();
+    // Primer arranque en frío del Sheet puede fallar: reintentar una vez si quedó vacío
+    if ((state.products.length === 0 || state.clients.length === 0) && navigator.onLine) {
+      await new Promise(r => setTimeout(r, 2000));
+      await syncAllApis();
+    }
+    prepDone('ss-catalog', state.products.length > 0, `${state.products.length} prod. • ${state.clients.length} cli. • ${Object.keys(state.images || {}).length} fotos`);
+  } catch (e) { prepDone('ss-catalog', false, String(e.message || e)); }
+
+  if (btn) btn.disabled = false;
+  maybeShowFirstRun();
+}
+
+async function runFirstLoad() {
+  const modal = document.getElementById('prep-modal');
+  const box = document.getElementById('prep-steps');
+  const close = document.getElementById('prep-close');
+  if (box) box.innerHTML = '';
+  if (close) close.classList.add('hidden');
+  if (modal) modal.classList.remove('hidden');
+
+  prepStep('prep-steps', 'ps-company', 'Empresa y marca');
+  try {
+    await loadCompanyName();
+    prepDone('ps-company', !!(state.companyName || "").trim(), (state.companyName || "").trim() || "Sin nombre en el Sheet");
+  } catch (e) { prepDone('ps-company', false, "No se pudo leer"); }
+
+  prepStep('prep-steps', 'ps-links', 'Links de descarga');
+  try {
+    await loadDownloadLinks();
+    const n = ["products", "clients", "discounts", "cabys"].filter(k => (API_ENDPOINTS[k] || "").trim()).length;
+    const nv = Object.keys(VENDOR_ENDPOINTS || {}).length;
+    prepDone('ps-links', n === 4 || nv > 0, `${n}/4 genéricos • ${nv} vendedor(es) con links`);
+  } catch (e) { prepDone('ps-links', false, "No se pudieron leer"); }
+
+  prepStep('prep-steps', 'ps-sellers', 'Vendedores');
+  try {
+    await loadVendedores();
+    prepDone('ps-sellers', true, `${(state.vendedores || []).length} vendedor(es)`);
+  } catch (e) { prepDone('ps-sellers', false, "No se pudieron cargar"); }
+
+  prepStep('prep-steps', 'ps-masters', 'Maestros y catálogo');
+  try {
+    await loadMaestros();
+    await syncAllApis();
+    if ((state.products.length === 0 || state.clients.length === 0) && navigator.onLine) {
+      await new Promise(r => setTimeout(r, 2000));
+      await syncAllApis();
+    }
+    prepDone('ps-masters', state.products.length > 0, `${state.products.length} prod. • ${state.clients.length} cli. • ${Object.keys(state.images || {}).length} fotos`);
+  } catch (e) { prepDone('ps-masters', false, String(e.message || e)); }
+
+  if (close) close.classList.remove('hidden');
+}
+function maybeShowSetupChoice() {
+  if (state.sheetsUrl) return;
+  const m = document.getElementById('setup-choice-modal');
+  if (m) m.classList.remove('hidden');
+}
+
+function closeSetupChoice() {
+  document.getElementById('setup-choice-modal')?.classList.add('hidden');
+}
+
 async function saveFirstRunBrand() {
   const name = (document.getElementById('first-company-name')?.value || "").trim();
   const logoUrl = normalizeImageUrl((document.getElementById('first-logo-url')?.value || "").trim());
@@ -2141,6 +2758,12 @@ async function clearAllCache() {
         .filter(n => /ecomdx|castro/i.test(n))
         .map(n => caches.delete(n)));
     }
+  } catch (e) {}
+
+  // Limpiar almacenamiento persistente IndexedDB
+  try {
+    await idbDelete('published_catalog');
+    await idbDelete('images');
   } catch (e) {}
 
   state.products = [];
