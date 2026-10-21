@@ -17,7 +17,7 @@ let state = {
   companyName: "",
   brandLogo: "",
   devWhatsapp: localStorage.getItem('ecomdx_dev_whatsapp') || '',
-  sheetsUrl: localStorage.getItem('ecomdx_sheets_url') || '',
+  sheetsUrl: localStorage.getItem('ecomdx_sheets_url') || 'https://script.google.com/macros/s/AKfycbzgitAKy2x0rodDbi66u0njHy4M-mn-3g9pQXizkBGbGquDtauwaabr3ruMN2UiXF4X8g/exec',
   activeTab: 'welcome',
   photoFilter: 'all', // 'all', 'with-photo', 'without-photo'
   photoSearch: '',
@@ -144,12 +144,81 @@ function setDownloadLinksCache(links) {
   updateDownloadLinksUI();
 }
 
+function cleanVenCode(v) {
+  return String(v || "").trim().toUpperCase().replace(/^V0*/i, "").replace(/^0+/, "");
+}
+
 function getVendorCodes() {
-  const fromSellers = (state.vendedores || []).map(v => String(v.codigo || "").trim().toUpperCase()).filter(Boolean);
-  const fromLinks = Object.keys(VENDOR_ENDPOINTS || {}).map(k => String(k).trim().toUpperCase()).filter(Boolean);
-  const all = {};
-  fromSellers.concat(fromLinks).forEach(c => { all[c] = true; });
-  return Object.keys(all).sort();
+  const result = [];
+  const seenClean = new Set();
+
+  // 1. Primero los vendedores registrados en el sistema
+  (state.vendedores || []).forEach(v => {
+    const code = String(v.codigo || "").trim();
+    if (!code) return;
+    const clean = cleanVenCode(code);
+    if (!seenClean.has(clean)) {
+      seenClean.add(clean);
+      result.push(code);
+    }
+  });
+
+  // 2. Vendedores detectados en VENDOR_ENDPOINTS de Descargas
+  Object.keys(VENDOR_ENDPOINTS || {}).forEach(k => {
+    const code = String(k || "").trim();
+    if (!code) return;
+    const clean = cleanVenCode(code);
+    if (!seenClean.has(clean)) {
+      seenClean.add(clean);
+      result.push(code);
+    }
+  });
+
+  return result.sort((a, b) => {
+    const na = parseInt(a, 10);
+    const nb = parseInt(b, 10);
+    if (!isNaN(na) && !isNaN(nb)) return na - nb;
+    return a.localeCompare(b);
+  });
+}
+
+function getVendorLink(ven, type) {
+  const v = String(ven || "").trim().toUpperCase();
+  const cleanV = cleanVenCode(v);
+
+  // 1. Coincidencia exacta en VENDOR_ENDPOINTS
+  if (VENDOR_ENDPOINTS[v] && VENDOR_ENDPOINTS[v][type]) {
+    return VENDOR_ENDPOINTS[v][type];
+  }
+
+  // 2. Coincidencia con código limpio (ej. "3" <-> "03" <-> "V003")
+  if (cleanV) {
+    if (VENDOR_ENDPOINTS[cleanV] && VENDOR_ENDPOINTS[cleanV][type]) {
+      return VENDOR_ENDPOINTS[cleanV][type];
+    }
+    const keys = Object.keys(VENDOR_ENDPOINTS);
+    for (let k of keys) {
+      if (cleanVenCode(k) === cleanV && VENDOR_ENDPOINTS[k][type]) {
+        return VENDOR_ENDPOINTS[k][type];
+      }
+    }
+  }
+
+  // 3. Respaldo general si existe
+  if (API_ENDPOINTS[type]) return API_ENDPOINTS[type];
+
+  return "";
+}
+
+function getAnyLinkForType(type) {
+  if (API_ENDPOINTS[type]) return API_ENDPOINTS[type];
+  const keys = Object.keys(VENDOR_ENDPOINTS);
+  for (let k of keys) {
+    if (VENDOR_ENDPOINTS[k] && VENDOR_ENDPOINTS[k][type]) {
+      return VENDOR_ENDPOINTS[k][type];
+    }
+  }
+  return "";
 }
 
 // Service Worker para modo 100% offline (solo en http/https)
@@ -421,6 +490,16 @@ async function syncFromSheetSnapshot() {
     }
 
     state.vendorData = json.data.vendors;
+    const sharedCabys = json.data.cabysMap || {};
+    if (Object.keys(sharedCabys).length > 0) {
+      state.cabysMap = sharedCabys;
+      Object.keys(state.vendorData).forEach(ven => {
+        if (!state.vendorData[ven].cabysMap || Object.keys(state.vendorData[ven].cabysMap).length === 0) {
+          state.vendorData[ven].cabysMap = sharedCabys;
+        }
+      });
+    }
+
     state.vendorCounts = {};
     state.vendorClients = {};
 
@@ -431,7 +510,7 @@ async function syncFromSheetSnapshot() {
         products: (d.products || []).length,
         clients: (d.clients || []).length,
         discounts: (d.discounts || []).length,
-        cabys: Object.keys(d.cabysMap || {}).length,
+        cabys: Object.keys(d.cabysMap || sharedCabys || {}).length,
         ok: true,
         fails: []
       };
@@ -519,14 +598,14 @@ async function syncAllApis(forceUpload = false) {
     // 1. Verificar links de vendedores frescos (solo vendedores, sin link central)
     await loadDownloadLinks();
     try { await loadVendedores(); } catch (e) {}
-    const vendors = getVendorCodes().filter(v => {
-      const l = (VENDOR_ENDPOINTS[v] || {});
-      return l.products || l.clients || l.discounts || l.cabys;
+    const vendors = getVendorCodes();
+    const vendorsWithLinks = vendors.filter(v => {
+      return getVendorLink(v, 'clients') || getVendorLink(v, 'products');
     });
-    if (vendors.length === 0) {
-      logSync("[ERROR] Sin links por vendedor en Sheet > Descargas (api_<tipo>_<VENDEDOR>).");
-      setSyncStatus('Sin links por vendedor. Péguelos en el Sheet (Descargas).');
-      showAlert("No hay links por vendedor en el Sheet (hoja Descargas).", "warning");
+    if (vendors.length === 0 && vendorsWithLinks.length === 0) {
+      logSync("[ERROR] Sin vendedores registrados ni links en Sheet > Descargas.");
+      setSyncStatus('Sin vendedores. Regístrelos o pegue sus links en Descargas.');
+      showAlert("No hay vendedores ni links en el Sheet (hoja Descargas).", "warning");
       return;
     }
 
@@ -662,44 +741,45 @@ async function uploadSnapshot() {
  * Guarda instantánea en el Sheet; si el lote completo falla por tamaño,
  * reintenta por partes de 150 registros.
  */
-async function saveSnapshotChunked(type, ven, items) {
-  const post = async (chunk, append) => {
-    const res = await fetch(state.sheetsUrl, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({ action: "save_snapshot", vendor: ven, tipo: type, items: chunk, append: !!append })
-    });
-    let json = null;
-    try { json = await res.json(); } catch (e) { throw new Error("El GS no devolvió JSON (¿Nueva versión con save_snapshot?)"); }
-    if (!json || json.status !== "success") {
-      throw new Error((json && json.message) || "El GS rechazó el guardado");
-    }
-    return json.count || 0;
-  };
-  try {
-    await post(items, false);
-    return;
-  } catch (e) {
-    console.warn(`snapshot ${type}/${ven} lote completo falló, por partes:`, e.message);
+async function saveSnapshotBatch(snapshots) {
+  if (!snapshots || !snapshots.length) return 0;
+  const res = await fetch(state.sheetsUrl, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ action: "save_snapshot_batch", snapshots })
+  });
+  let json = null;
+  try { json = await res.json(); } catch (e) {
+    throw new Error("El Google Sheet no devolvió JSON válido.");
   }
-  for (let i = 0; i < items.length; i += 150) {
-    await post(items.slice(i, i + 150), i > 0);
+  if (!json || json.status !== "success") {
+    throw new Error((json && json.message) || "Error al guardar instantánea por lote en Sheet");
   }
+  return json.count || 0;
 }
 
-async function fetchVendorType(type, vendor) {  let lastErr = null;
-  for (let attempt = 1; attempt <= 3; attempt++) {
+async function fetchVendorType(type, vendor) {
+  let lastErr = null;
+  const venParam = vendor ? `&v=${encodeURIComponent(vendor)}` : "";
+  for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      const res = await fetch(`${state.sheetsUrl}?action=fetch&type=${type}&v=${encodeURIComponent(vendor)}`);
+      const res = await fetch(`${state.sheetsUrl}?action=fetch&type=${type}${venParam}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       if (json.status !== "success" || !Array.isArray(json.items)) {
-        throw new Error((json && json.message) || "Respuesta inválida del Sheet");
+        let msg = (json && json.message) || "Respuesta inválida del Sheet";
+        if (/acci[oó]n no disponible/i.test(msg)) {
+          msg = "Tu Google Sheet tiene un script antiguo o el del catálogo público. Pega el archivo google-sheets-script/Code.gs en el Apps Script del Sheet principal y despliega como 'Nueva versión'.";
+        }
+        const err = new Error(msg);
+        err.noRetry = true;
+        throw err;
       }
       return json.items;
     } catch (e) {
       lastErr = e;
-      await new Promise(r => setTimeout(r, 1500 * attempt));
+      if (e.noRetry) throw e;
+      if (attempt < 2) await new Promise(r => setTimeout(r, 1000));
     }
   }
   throw lastErr;
@@ -708,79 +788,192 @@ async function fetchVendorType(type, vendor) {  let lastErr = null;
 async function syncVendorsData(btn, backup) {
   const prev = (backup && backup.vendorData) || {};
   const prevClients = (backup && backup.vendorClients) || {};
-  const vendors = getVendorCodes().filter(v => {
-    const l = (VENDOR_ENDPOINTS[v] || {});
-    return l.products || l.clients || l.discounts || l.cabys;
-  });
+  const vendors = getVendorCodes();
+
   state.vendorCounts = {};
   state.vendorClients = {};
   state.vendorData = {};
+
   if (vendors.length === 0) {
-    logSync("Sin links por vendedor en Descargas.");
+    logSync("Sin vendedores detectados en el sistema ni en Descargas.");
     renderVendorSyncList();
     return;
   }
-  const TYPES = [["products", "productos"], ["clients", "clientes"], ["discounts", "descuentos"], ["cabys", "CABYS"]];
-  logSync(`Descargando datos por vendedor: ${vendors.join(", ")}...`);
+
+  logSync(`[INICIO] Sincronizando catálogo y ${vendors.length} vendedores: ${vendors.join(", ")}...`);
+
+  const batchSnapshots = [];
+  const urlDownloadCache = new Map();
+
+  // Helper para descargar con caché por URL
+  async function downloadType(type, ven, label) {
+    const url = (getVendorLink(ven, type) || "").trim();
+    if (!url) return null;
+    if (urlDownloadCache.has(url)) {
+      const cached = urlDownloadCache.get(url);
+      logSync(`[${ven || "GENERAL"}] ${label}: ${cached.length} registros (reutilizados, mismo link).`);
+      return cached;
+    }
+    const items = await fetchVendorType(type, ven);
+    urlDownloadCache.set(url, items);
+    logSync(`[${ven || "GENERAL"}] ${label}: ${items.length} registros descargados.`);
+    return items;
+  }
+
+  // 1. Descargar catálogo general compartido (productos, descuentos, CABYS)
+  let globalProducts = (backup && backup.products) || [];
+  let globalDiscounts = (backup && backup.discounts) || [];
+  let globalCabysMap = (backup && backup.cabysMap) || {};
+  let globalCabysItems = [];
+
+  const genericProductsLink = getAnyLinkForType('products');
+  if (genericProductsLink) {
+    if (btn) btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i><span>Descargando Productos...</span>`;
+    setSyncStatus('Descargando catálogo general de productos del ERP...');
+    try {
+      const prods = await downloadType('products', '', 'Productos');
+      if (prods && prods.length) {
+        globalProducts = prods;
+        batchSnapshots.push({ vendor: "", tipo: "products", items: prods });
+      }
+    } catch (e) {
+      logSync(`[AVISO] No se pudo descargar productos generales: ${e.message}`);
+    }
+  }
+
+  const genericDiscountsLink = getAnyLinkForType('discounts');
+  if (genericDiscountsLink) {
+    if (btn) btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i><span>Descargando Descuentos...</span>`;
+    setSyncStatus('Descargando reglas comerciales del ERP...');
+    try {
+      const dtos = await downloadType('discounts', '', 'Descuentos');
+      if (dtos && dtos.length) {
+        globalDiscounts = dtos;
+        batchSnapshots.push({ vendor: "", tipo: "discounts", items: dtos });
+      }
+    } catch (e) {
+      logSync(`[AVISO] No se pudo descargar descuentos generales: ${e.message}`);
+    }
+  }
+
+  const genericCabysLink = getAnyLinkForType('cabys');
+  if (genericCabysLink) {
+    if (btn) btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i><span>Descargando CABYS...</span>`;
+    setSyncStatus('Descargando catálogo tributario CABYS e IVA...');
+    try {
+      const cabys = await downloadType('cabys', '', 'CABYS');
+      if (cabys && cabys.length) {
+        globalCabysItems = cabys;
+        globalCabysMap = {};
+        cabys.forEach(c => {
+          if (c && c.pro_codecom) globalCabysMap[String(c.pro_codecom).trim()] = c;
+        });
+        batchSnapshots.push({ vendor: "", tipo: "cabys", items: cabys });
+      }
+    } catch (e) {
+      logSync(`[AVISO] No se pudo descargar CABYS: ${e.message}`);
+    }
+  }
+
+  // 2. Descargar rutas de cada vendedor (especialmente su cartera de clientes)
   for (const ven of vendors) {
     if (btn) btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i><span>Vendedor ${ven}...</span>`;
-    setSyncStatus(`Descargando ruta de ${ven}...`);
-    const links = VENDOR_ENDPOINTS[ven] || {};
-    const data = { products: [], clients: [], discounts: [], cabysMap: {} };
+    setSyncStatus(`Descargando datos del vendedor ${ven}...`);
+
+    let venProducts = globalProducts;
+    let venDiscounts = globalDiscounts;
+    let venCabysMap = globalCabysMap;
+    let venClients = [];
     const fails = [];
-    for (const [type, label] of TYPES) {
-      if (!(links[type] || "").trim()) {
-        logSync(`[${ven}] Sin link de ${label}, se omite.`);
-        continue;
-      }
+
+    // Clientes del vendedor (su cartera única en el ERP)
+    const clientLink = getVendorLink(ven, 'clients');
+    if (clientLink) {
       try {
-        const items = await fetchVendorType(type, ven);
-        if (type === 'cabys') {
-          items.forEach(c => {
-            if (c && c.pro_codecom) data.cabysMap[String(c.pro_codecom).trim()] = c;
-          });
+        const clis = await downloadType('clients', ven, 'Clientes');
+        if (clis && clis.length) {
+          venClients = clis;
+          batchSnapshots.push({ vendor: ven, tipo: "clients", items: clis });
         } else {
-          data[type] = items;
-        }
-        // Guardar instantánea rápida en el Sheet (para no ir al ERP siempre)
-        await saveSnapshotChunked(type, ven, items);
-        if (!items.length) {
-          // Vacío: conservar lo anterior de ese vendedor si había
-          const old = type === 'cabys' ? prev[ven]?.cabysMap : (type === 'clients' ? prevClients[ven] : prev[ven]?.[type]);
-          const hasOld = type === 'cabys' ? old && Object.keys(old).length : old && old.length;
-          if (hasOld) {
-            if (type === 'cabys') data.cabysMap = old;
-            else data[type] = old;
-            logSync(`[${ven}] ${label}: vacío, se conserva lo anterior (${type === 'cabys' ? Object.keys(old).length : old.length}).`);
-          } else {
-            logSync(`[${ven}] ${label}: vacío.`);
+          // Si vino vacío, preservar los anteriores si existían
+          const oldClis = prevClients[ven] || (prev[ven]?.clients);
+          if (oldClis && oldClis.length) {
+            venClients = oldClis;
+            logSync(`[${ven}] Cartera vacía, se conservaron ${oldClis.length} clientes anteriores.`);
           }
-        } else {
-          logSync(`[${ven}] ${label}: ${items.length} registros.`);
         }
       } catch (e) {
-        fails.push(label);
-        logSync(`[${ven}] ${label} falló: ${e.message} (se conserva lo anterior).`);
-        const old = type === 'cabys' ? prev[ven]?.cabysMap : (type === 'clients' ? prevClients[ven] : prev[ven]?.[type]);
-        if (type === 'cabys') {
-          if (old && Object.keys(old).length) data.cabysMap = old;
-        } else if (old && old.length) {
-          data[type] = old;
+        fails.push(`clientes (${e.message})`);
+        logSync(`[${ven}] Error descargando clientes: ${e.message}`);
+        const oldClis = prevClients[ven] || (prev[ven]?.clients);
+        if (oldClis && oldClis.length) venClients = oldClis;
+      }
+    } else {
+      fails.push(`clientes (falta link en Descargas)`);
+      logSync(`[${ven}] Falta link de clientes (agrega api_clientes_${ven} en hoja Descargas).`);
+      const oldClis = prevClients[ven] || (prev[ven]?.clients);
+      if (oldClis && oldClis.length) venClients = oldClis;
+    }
+
+    // Productos propios del vendedor (solo si tiene un link específico distinto al general)
+    const customProdLink = (VENDOR_ENDPOINTS[ven] || {})['products'];
+    if (customProdLink && customProdLink !== genericProductsLink) {
+      try {
+        const customProds = await downloadType('products', ven, 'Productos Propios');
+        if (customProds && customProds.length) {
+          venProducts = customProds;
+          batchSnapshots.push({ vendor: ven, tipo: "products", items: customProds });
         }
+      } catch (e) {
+        fails.push(`productos propios (${e.message})`);
       }
     }
-    state.vendorData[ven] = data;
-    state.vendorClients[ven] = data.clients;
+
+    // Descuentos propios del vendedor (solo si tiene link específico)
+    const customDscLink = (VENDOR_ENDPOINTS[ven] || {})['discounts'];
+    if (customDscLink && customDscLink !== genericDiscountsLink) {
+      try {
+        const customDtos = await downloadType('discounts', ven, 'Descuentos Propios');
+        if (customDtos && customDtos.length) {
+          venDiscounts = customDtos;
+          batchSnapshots.push({ vendor: ven, tipo: "discounts", items: customDtos });
+        }
+      } catch (e) {
+        fails.push(`descuentos propios (${e.message})`);
+      }
+    }
+
+    state.vendorData[ven] = {
+      products: venProducts,
+      clients: venClients,
+      discounts: venDiscounts,
+      cabysMap: venCabysMap
+    };
+    state.vendorClients[ven] = venClients;
     state.vendorCounts[ven] = {
-      products: data.products.length,
-      clients: data.clients.length,
-      discounts: data.discounts.length,
-      cabys: Object.keys(data.cabysMap).length,
+      products: venProducts.length,
+      clients: venClients.length,
+      discounts: venDiscounts.length,
+      cabys: Object.keys(venCabysMap).length,
       ok: fails.length === 0,
       fails: fails
     };
+
     renderVendorSyncList();
   }
+
+  // 3. Guardar todas las instantáneas en el Sheet en un solo envío masivo
+  if (batchSnapshots.length > 0) {
+    if (btn) btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i><span>Guardando en Sheet...</span>`;
+    setSyncStatus('Guardando respaldo consolidado en Google Sheet...');
+    logSync('Guardando instantáneas consolidadas en el Google Sheet...');
+    try {
+      await saveSnapshotBatch(batchSnapshots);
+    } catch (err) {
+      logSync(`Aviso al guardar instantánea en Sheet: ${err.message}`);
+    }
+  }
+
   const okCount = vendors.filter(v => state.vendorCounts[v] && state.vendorCounts[v].ok).length;
   setSyncStatus(`Descargados ${okCount}/${vendors.length} vendedores.`);
 }
@@ -828,28 +1021,37 @@ function sellerName(code) {
 
 function renderVendorSyncList() {
   const box = document.getElementById('vendor-sync-list');  if (!box) return;
-  const vendors = getVendorCodes().filter(v => {
-    const l = (VENDOR_ENDPOINTS[v] || {});
-    return l.products || l.clients || l.discounts || l.cabys;
-  });
+  const vendors = getVendorCodes();
   if (vendors.length === 0) {
-    box.innerHTML = `<p class="text-[11px] text-slate-400">Sin vendedores con links propios. Crea el vendedor y pega sus links con su usuario= en Descargas.</p>`;
+    box.innerHTML = `<p class="text-[11px] text-slate-400">Sin vendedores detectados. Agrégalos en la pestaña Vendedores o configura sus links en Descargas.</p>`;
     return;
   }
   box.innerHTML = vendors.map(ven => {
-    const c = state.vendorCounts[ven];
+    const c = state.vendorCounts[ven] || state.vendorCounts[cleanVenCode(ven)];
     const name = sellerName(ven);
+    const hasClientLink = !!getVendorLink(ven, 'clients');
     const badge = !c
       ? `<span class="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">Pendiente</span>`
       : c.ok
         ? `<span class="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">${c.clients} clientes</span>`
         : `<span class="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">Error</span>`;
-    const detail = c && c.ok ? `${c.products} prod. • ${c.discounts} dto. • ${c.cabys} CABYS` : (c ? `Falló: ${(c.fails || []).join(", ") || "ver log"}` : "Se descarga con Actualizar Información");
+
+    let detail = "";
+    if (c && c.ok) {
+      detail = `${c.products} prod. • ${c.discounts} dto. • ${c.cabys} CABYS`;
+    } else if (c && !c.ok) {
+      detail = `Falló: ${(c.fails || []).join(", ") || "ver log"}`;
+    } else if (!hasClientLink) {
+      detail = `Falta link en Descargas (ej. api_clientes_${ven})`;
+    } else {
+      detail = "Listo para descargar con 'Actualizar Información'";
+    }
+
     return `
       <div class="flex items-center justify-between gap-2 text-xs p-2.5 rounded-xl bg-slate-50 border border-slate-100">
         <div class="min-w-0">
           <div class="font-bold text-slate-900 font-mono">${ven}${name ? ` <span class="font-sans font-medium text-slate-500">• ${name}</span>` : ""}</div>
-          <div class="text-[11px] text-slate-400">${detail}</div>
+          <div class="text-[11px] ${c && !c.ok ? 'text-rose-500 font-medium' : 'text-slate-400'}">${detail}</div>
         </div>
         ${badge}
       </div>`;
@@ -864,17 +1066,18 @@ function renderVendorClientsChart() {
   const chart = document.getElementById('vendor-clients-chart');
   if (!chart) return;
   const total = state.clients.length;
-  const vendors = getVendorCodes().filter(v => {
-    const l = (VENDOR_ENDPOINTS[v] || {});
-    return l.products || l.clients || l.discounts || l.cabys;
+  const vendors = getVendorCodes();
+  const rows = vendors.map(ven => {
+    const c = state.vendorCounts[ven] || state.vendorCounts[cleanVenCode(ven)];
+    const clis = state.vendorClients[ven] || state.vendorClients[cleanVenCode(ven)] || [];
+    return {
+      ven,
+      name: sellerName(ven),
+      count: clis.length,
+      ok: !!(c && c.ok),
+      synced: !!c
+    };
   });
-  const rows = vendors.map(ven => ({
-    ven,
-    name: sellerName(ven),
-    count: (state.vendorClients[ven] || []).length,
-    ok: !!(state.vendorCounts[ven] && state.vendorCounts[ven].ok),
-    synced: !!state.vendorCounts[ven]
-  }));
   const max = Math.max(total, ...rows.map(r => r.count), 1);
   const sumRoutes = rows.reduce((a, r) => a + r.count, 0);
   const coverage = total > 0 ? Math.round((sumRoutes / total) * 100) : 0;
@@ -1257,13 +1460,26 @@ async function loadDownloadLinks() {
 }
 
 function updateDownloadLinksUI() {
-  const vals = [API_ENDPOINTS.products, API_ENDPOINTS.clients, API_ENDPOINTS.discounts, API_ENDPOINTS.cabys];
-  const configured = vals.filter(v => v && v.length > 10).length;
   const syncMsg = document.getElementById("sync-status-msg");
+  const vendors = getVendorCodes();
+  const vendorsWithClients = vendors.filter(v => !!getVendorLink(v, 'clients'));
+  const hasProducts = !!(API_ENDPOINTS.products || getAnyLinkForType('products'));
+  const hasDiscounts = !!(API_ENDPOINTS.discounts || getAnyLinkForType('discounts'));
+  const hasCabys = !!(API_ENDPOINTS.cabys || getAnyLinkForType('cabys'));
+
   if (syncMsg) {
-    syncMsg.textContent = configured === 4
-      ? "Links listos desde Google Sheet (hoja Descargas)."
-      : `Faltan ${4 - configured} links por pegar en el Sheet (hoja Descargas).`;
+    if (vendorsWithClients.length > 0 && hasProducts) {
+      syncMsg.textContent = `Links listos: ${vendorsWithClients.length} vendedor(es) configurados y catálogo general enlazado.`;
+    } else if (hasProducts && (API_ENDPOINTS.clients || vendorsWithClients.length > 0)) {
+      syncMsg.textContent = "Links listos desde Google Sheet (hoja Descargas).";
+    } else {
+      const missing = [];
+      if (!hasProducts) missing.push("productos");
+      if (vendorsWithClients.length === 0 && !API_ENDPOINTS.clients) missing.push("clientes por vendedor");
+      if (!hasDiscounts) missing.push("descuentos");
+      if (!hasCabys) missing.push("CABYS");
+      syncMsg.textContent = `Atención: Faltan links en hoja Descargas (${missing.join(", ")}).`;
+    }
   }
   renderVendorSyncList();
   renderConfigStatus();
