@@ -723,8 +723,8 @@
             <div class="mt-6 pt-5 border-t border-slate-100 flex flex-wrap gap-2">
               <button onclick="saveClientCatalogDraft()" id="btn-save-client-draft" class="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition"><i class="fa-solid fa-floppy-disk mr-1.5"></i>Guardar borrador</button>
               <button onclick="testClientCatalogGs()" id="btn-test-client-gs" class="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition"><i class="fa-solid fa-plug mr-1.5"></i>Probar su GS</button>
-              <button onclick="publishClientCatalogToGs()" id="btn-publish-client-gs" class="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm transition"><i class="fa-solid fa-cloud-arrow-up mr-1.5"></i>Publicar en su GS</button>
-              <button onclick="notifyDeveloper('clientes')" class="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm transition"><i class="fa-brands fa-whatsapp mr-1.5"></i>Avisar al desarrollador</button>
+              <button onclick="publishClientCatalogToGs(false)" id="btn-publish-client-gs" class="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm transition"><i class="fa-solid fa-cloud-arrow-up mr-1.5"></i>Publicar en su GS</button>
+              <button onclick="publishClientCatalogToGs(true)" id="btn-publish-client-gs-photos" class="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm transition"><i class="fa-solid fa-images mr-1.5"></i>Publicar solo con imágenes</button>
             </div>
             <p id="client-gs-status" class="mt-2 text-xs font-semibold"></p>
             <p class="mt-1 text-[11px] text-slate-400">Sube lo ya descargado (código, descripción, foto) al GS propio del vendedor. Sin precios. Su catálogo queda solo para sus clientes y el pedido llega a su WhatsApp.</p>

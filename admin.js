@@ -240,6 +240,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   
   await loadInitialData();
   await loadDownloadLinks();
+  if (state.sheetsUrl) loadImagesFromSheet(true);
   loadClientCatalogConfigs();
   try { if (state.sheetsUrl) await loadClientCatalogFromMainSheet(true); } catch (e) {}
   // Maestros desde el inicio para que siempre viajen al publicar
@@ -375,7 +376,7 @@ function updateDashboardUI() {
   // Photo statistics
   let withPhoto = 0;
   state.products.forEach(p => {
-    if (state.images[p.pro_codigo] && state.images[p.pro_codigo].length > 0) {
+    if (getProductPhotoUrl(p.pro_codigo)) {
       withPhoto++;
     }
   });
@@ -428,6 +429,7 @@ function switchTab(tabName) {
 
   if (tabName === 'images') {
     renderPhotosTable();
+    if (state.sheetsUrl) loadImagesFromSheet(true);
   } else if (tabName === 'config') {
     renderConfigStatus();
     if (state.sheetsUrl) loadDownloadLinks();
@@ -1333,32 +1335,36 @@ async function forgetSheetsConnection() {
 /**
  * Manejo de Google Sheets & Fotos
  */
-async function testAndLoadGoogleSheet() {
-  const url = document.getElementById('input-sheets-url').value.trim();
+async function loadImagesFromSheet(silent = false) {
+  const url = (state.sheetsUrl || document.getElementById('input-sheets-url')?.value || "").trim();
   if (!url) {
-    showAlert("Por favor ingresa la URL de la aplicación web de Google Apps Script.", "warning");
+    if (!silent) showAlert("Por favor ingresa la URL de la aplicación web en Configuración.", "warning");
     return;
   }
-  
-  state.sheetsUrl = url;
-  localStorage.setItem('ecomdx_sheets_url', url);
-  logSync(`Conectando con Google Sheet...`);
-
   try {
     const res = await fetch(`${url}?action=get_images`);
     const json = await res.json();
     if (json.status === "success" && json.images) {
       state.images = json.images;
-      localStorage.setItem('ecomdx_images', JSON.stringify(state.images));
-      showAlert(`Fotos sincronizadas desde Google Sheet: ${Object.keys(state.images).length} productos tienen foto.`, "success");
+      try {
+        localStorage.setItem('ecomdx_images', JSON.stringify(state.images));
+        await idbSet('images', state.images);
+      } catch (e) {}
       updateDashboardUI();
       renderPhotosTable();
-    } else {
-      throw new Error("Respuesta inválida de Google Sheets");
+      if (!silent) {
+        showAlert(`Fotos sincronizadas desde Google Sheet: ${Object.keys(state.images).length} fotos cargadas.`, "success");
+      }
     }
   } catch (err) {
-    showAlert("No se pudo conectar directamente al Google Sheet. Revisa los permisos de 'Cualquier persona' en la implementación de Apps Script.", "warning");
+    if (!silent) {
+      showAlert("No se pudieron cargar fotos de Google Sheets: " + err.message, "warning");
+    }
   }
+}
+
+async function testAndLoadGoogleSheet() {
+  await loadImagesFromSheet(false);
   await loadDownloadLinks();
 }
 
@@ -1504,6 +1510,32 @@ function filterPhotosList(filter) {
   renderPhotosTable();
 }
 
+function getProductPhotoUrl(code) {
+  const c = String(code || "").trim();
+  if (!c) return '';
+  const imgs = state.images || {};
+  // 1. Coincidencia exacta
+  if (imgs[c] && imgs[c].length > 0) {
+    return Array.isArray(imgs[c]) ? (imgs[c][0] || '') : String(imgs[c]);
+  }
+  // 2. Coincidencia sin ceros a la izquierda (ej: "04002" <-> "4002")
+  const unpadded = c.replace(/^0+/, '');
+  if (unpadded && imgs[unpadded] && imgs[unpadded].length > 0) {
+    return Array.isArray(imgs[unpadded]) ? (imgs[unpadded][0] || '') : String(imgs[unpadded]);
+  }
+  // 3. Búsqueda en claves que coincidan sin ceros a la izquierda
+  if (unpadded) {
+    const keys = Object.keys(imgs);
+    for (let i = 0; i < keys.length; i++) {
+      const k = keys[i];
+      if (k.replace(/^0+/, '') === unpadded && imgs[k] && imgs[k].length > 0) {
+        return Array.isArray(imgs[k]) ? (imgs[k][0] || '') : String(imgs[k]);
+      }
+    }
+  }
+  return '';
+}
+
 function renderPhotosTable() {
   const tbody = document.getElementById('photos-table-body');
   if (!tbody) return;
@@ -1511,7 +1543,7 @@ function renderPhotosTable() {
   const search = (document.getElementById('search-photos-input')?.value || '').toLowerCase().trim();
 
   let filtered = state.products.filter(p => {
-    const hasPhoto = state.images[p.pro_codigo] && state.images[p.pro_codigo].length > 0;
+    const hasPhoto = !!getProductPhotoUrl(p.pro_codigo);
     
     if (state.photoFilter === 'with-photo' && !hasPhoto) return false;
     if (state.photoFilter === 'without-photo' && hasPhoto) return false;
@@ -1537,8 +1569,7 @@ function renderPhotosTable() {
   }
 
   tbody.innerHTML = paged.map(p => {
-    const photos = state.images[p.pro_codigo] || [];
-    const photoUrl = photos.length > 0 ? normalizeImageUrl(photos[0]) : '';
+    const photoUrl = normalizeImageUrl(getProductPhotoUrl(p.pro_codigo));
     const stock = parseFloat(p.pro_invent || 0);
     const stockBadge = stock > 0 
       ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">${stock} und</span>`
@@ -2425,17 +2456,19 @@ async function testClientCatalogGs() {
   }
 }
 
-async function publishClientCatalogToGs() {
+async function publishClientCatalogToGs(onlyWithImages = false) {
   const cfg = currentClientCatalogConfig();
   const url = cfg && (cfg.sheetsUrl || "").trim();
   if (!url) {
     showAlert("Este vendedor no tiene GS propio configurado.", "warning");
     return;
   }
-  const btn = document.getElementById('btn-publish-client-gs');
+  const btnId = onlyWithImages ? 'btn-publish-client-gs-photos' : 'btn-publish-client-gs';
+  const btn = document.getElementById(btnId);
   const st = document.getElementById('client-gs-status');
   if (btn) btn.disabled = true;
-  if (st) { st.textContent = `Publicando catálogo de ${cfg.sellerCode} en su GS...`; st.className = "mt-2 text-xs font-semibold text-slate-500"; }
+  const filterLabel = onlyWithImages ? "solo con imágenes" : "con inventario";
+  if (st) { st.textContent = `Publicando catálogo de ${cfg.sellerCode} (${filterLabel}) en su GS...`; st.className = "mt-2 text-xs font-semibold text-slate-500"; }
   try {
     updateClientCatalogDraft();
     // Logo y empresa: los mismos del admin (link público del Sheet principal)
@@ -2449,12 +2482,13 @@ async function publishClientCatalogToGs() {
         }
       } catch (e) {}
     }
-    const payload = publicClientCatalogPayload();
+    const payload = publicClientCatalogPayload(onlyWithImages);
     if (!payload.products.length) {
-      showAlert("No hay productos con inventario disponibles para publicar.", "warning");
+      showAlert(`No hay productos ${filterLabel} disponibles para publicar.`, "warning");
+      if (st) { st.textContent = `Sin productos ${filterLabel}.`; st.className = "mt-2 text-xs font-semibold text-amber-600"; }
       return;
     }
-    if (st) { st.textContent = `Borrando productos anteriores y subiendo ${payload.products.length} productos con inventario a su GS...`; st.className = "mt-2 text-xs font-semibold text-slate-500"; }
+    if (st) { st.textContent = `Borrando catálogo anterior y subiendo ${payload.products.length} productos (${filterLabel}) a su GS...`; st.className = "mt-2 text-xs font-semibold text-slate-500"; }
     // no-cors: el POST de Apps Script redirige y el navegador bloquearía leer
     // la respuesta; se envía igual y se verifica con un GET posterior
     await fetch(url, {
@@ -2468,8 +2502,8 @@ async function publishClientCatalogToGs() {
     const checkJson = await check.json();
     const n = checkJson.status === "success" && checkJson.public ? (checkJson.public.products || []).length : 0;
     if (!n) throw new Error("Su GS no reflejó los datos (¿Nueva versión desplegada con save_public?)");
-    if (st) { st.textContent = `Publicado en su GS: ${n} productos con inventario (reemplazo total limpio).`; st.className = "mt-2 text-xs font-semibold text-emerald-600"; }
-    showAlert(`Publicado con éxito en su GS: ${n} productos con inventario (productos anteriores eliminados).`, "success");
+    if (st) { st.textContent = `Publicado con éxito en su GS: ${n} productos (${filterLabel}).`; st.className = "mt-2 text-xs font-semibold text-emerald-600"; }
+    showAlert(`Publicado con éxito en su GS: ${n} productos (${filterLabel}).`, "success");
     // Respaldar automáticamente la configuración del vendedor en el Sheet principal
     if (state.sheetsUrl) {
       saveClientCatalogToMainSheet(true).catch(() => {});
@@ -2482,20 +2516,30 @@ async function publishClientCatalogToGs() {
   }
 }
 
-function publicClientCatalogPayload() {
+function publicClientCatalogPayload(onlyWithImages = false) {
   const cfg = currentClientCatalogConfig() || {};
   const hierarchy = (p) => Array.isArray(p.pro_jerarquias) ? (p.pro_jerarquias[0] || {}) : (p.pro_jerarquias || {});
   
   // Subir ÚNICAMENTE productos que tienen inventario > 0 (sin exponer la cifra de inventario)
+  // y si onlyWithImages es true, que tengan imagen asignada
   const products = (state.products || [])
-    .filter(p => parseFloat(p.pro_invent || 0) > 0)
+    .filter(p => {
+      const hasStock = parseFloat(p.pro_invent || 0) > 0;
+      if (!hasStock) return false;
+      if (onlyWithImages) {
+        const photo = getProductPhotoUrl(p.pro_codigo);
+        return Boolean(photo && String(photo).trim().length > 0);
+      }
+      return true;
+    })
     .map(p => {
       const h = hierarchy(p);
       const code = String(p.pro_codigo || '').trim();
+      const photo = getProductPhotoUrl(code);
       return {
         code,
         name: String(p.pro_nombre || '').trim(),
-        image: ((state.images || {})[code] || [])[0] || '',
+        image: photo ? normalizeImageUrl(photo) : '',
         category: String(h.det_catego || '').trim(),
         supplier: String(h.det_provee || '').trim(),
         categoryName: ((state.maestros.categorias || {})[String(h.det_catego || '').trim()] || ''),
