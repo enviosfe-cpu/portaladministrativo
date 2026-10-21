@@ -1545,28 +1545,48 @@ function renderPhotosTable() {
       : `<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-50 text-rose-700 border border-rose-200">Agotado</span>`;
 
     const imgPreview = photoUrl 
-      ? `<div onclick="openPhotoPreview('${photoUrl}', '${p.pro_codigo}', '${p.pro_nombre}')" class="w-10 h-10 rounded-lg overflow-hidden border border-slate-200 cursor-pointer hover:opacity-80 transition bg-white flex items-center justify-center">
-           <img src="${photoUrl}" class="w-full h-full object-cover">
+      ? `<div onclick="openPhotoPreview('${photoUrl}', '${p.pro_codigo}', '${(p.pro_nombre || '').replace(/'/g, "\\'")}')" 
+              class="w-24 h-24 sm:w-28 sm:h-28 rounded-xl bg-white border-2 border-slate-200 p-1.5 shadow-xs relative group cursor-pointer hover:border-blue-500 hover:shadow-md transition-all duration-200 flex items-center justify-center overflow-hidden mx-auto"
+              title="Clic para ampliar en tamaño grande">
+           <img src="${photoUrl}" alt="${p.pro_codigo}" class="w-full h-full object-contain rounded-lg transition-transform duration-200 group-hover:scale-105" loading="lazy">
+           <div class="absolute inset-0 bg-slate-900/25 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-xl pointer-events-none">
+             <span class="bg-white/95 text-slate-800 text-[10px] font-bold px-2 py-1 rounded-md shadow flex items-center gap-1">
+               <i class="fa-solid fa-magnifying-glass-plus text-blue-600"></i> Ampliar
+             </span>
+           </div>
          </div>`
-      : `<div class="w-10 h-10 rounded-lg bg-slate-100 border border-dashed border-slate-300 flex items-center justify-center text-slate-400 text-xs">
-           <i class="fa-solid fa-image"></i>
+      : `<div class="w-24 h-24 sm:w-28 sm:h-28 rounded-xl bg-slate-50 border-2 border-dashed border-slate-200 flex flex-col items-center justify-center text-slate-300 gap-1.5 mx-auto"
+              title="Sin foto asignada">
+           <i class="fa-regular fa-image text-2xl text-slate-300"></i>
+           <span class="text-[10px] font-semibold text-slate-400">Sin foto</span>
          </div>`;
 
     return `
-      <tr class="hover:bg-slate-50/75 transition">
-        <td class="p-3 text-center">${imgPreview}</td>
-        <td class="p-3 font-mono font-bold text-slate-900">${p.pro_codigo}</td>
-        <td class="p-3">
-          <div class="font-medium text-slate-900">${p.pro_nombre}</div>
-          <div class="text-[10px] text-slate-400">CABYS: ${state.cabysMap[p.pro_codigo]?.pro_cabys || 'Pendiente'} | IVA: ${state.cabysMap[p.pro_codigo]?.pro_poriva || p.pro_iva || 13}%</div>
+      <tr class="hover:bg-slate-50/75 transition border-b border-slate-100">
+        <td class="p-3 text-center align-middle">${imgPreview}</td>
+        <td class="p-3 font-mono font-bold text-slate-900 align-middle text-sm">${p.pro_codigo}</td>
+        <td class="p-3 align-middle">
+          <div class="font-bold text-slate-900 text-sm mb-1 leading-snug">${p.pro_nombre}</div>
+          <div class="text-[11px] text-slate-400 flex flex-wrap gap-x-3 gap-y-0.5">
+            <span>CABYS: <strong class="font-mono text-slate-600">${state.cabysMap[p.pro_codigo]?.pro_cabys || 'Pendiente'}</strong></span>
+            <span>IVA: <strong class="text-slate-600">${state.cabysMap[p.pro_codigo]?.pro_poriva || p.pro_iva || 13}%</strong></span>
+          </div>
         </td>
-        <td class="p-3 text-center">${stockBadge}</td>
-        <td class="p-3">
-          <input type="text" id="img-input-${p.pro_codigo}" value="${photoUrl}" placeholder="Pega el link de la foto aquí..." class="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500">
+        <td class="p-3 text-center align-middle">${stockBadge}</td>
+        <td class="p-3 align-middle">
+          <div class="flex items-center gap-2">
+            <input type="text" id="img-input-${p.pro_codigo}" value="${photoUrl}" placeholder="Pega el link de la foto aquí..." 
+                   class="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono">
+            ${photoUrl ? `<button onclick="openPhotoPreview('${photoUrl}', '${p.pro_codigo}', '${(p.pro_nombre || '').replace(/'/g, "\\'")}')" 
+                                  class="px-2.5 py-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition" 
+                                  title="Ver foto en pantalla completa">
+                            <i class="fa-solid fa-up-right-from-square text-xs"></i>
+                          </button>` : ''}
+          </div>
         </td>
-        <td class="p-3 text-center">
-          <button onclick="savePhotoLink('${p.pro_codigo}')" class="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-xs font-semibold transition">
-            Guardar
+        <td class="p-3 text-center align-middle">
+          <button onclick="savePhotoLink('${p.pro_codigo}')" class="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-xs transition inline-flex items-center gap-1.5 whitespace-nowrap">
+            <i class="fa-solid fa-floppy-disk text-xs"></i> Guardar
           </button>
         </td>
       </tr>

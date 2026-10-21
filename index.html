@@ -333,11 +333,8 @@
         </div>
       </div>
 
-      <!-- Overview Cards: Photos & Fast Actions -->
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
-        <!-- Photo Coverage Card -->
-        <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm lg:col-span-2">
+      <!-- Overview Card: Photos -->
+      <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
           <div class="flex items-center justify-between mb-4">
             <div>
               <h3 class="text-base font-bold text-slate-900">Cobertura de Fotos en Catálogo (Google Sheets)</h3>
@@ -374,39 +371,6 @@
               Ver productos sin foto
             </button>
           </div>
-        </div>
-
-        <!-- Quick Summary & Status -->
-        <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
-          <div>
-            <h3 class="text-base font-bold text-slate-900 mb-1">Estado de Publicación</h3>
-            <p class="text-xs text-slate-500 mb-4">Lo que los preventas ven en su app</p>
-            
-            <div class="space-y-3">
-              <div class="flex items-center justify-between text-xs p-2.5 rounded-xl bg-slate-50 border border-slate-100">
-                <span class="text-slate-600 font-medium">Versión Publicada</span>
-                <span id="summary-version" class="font-bold text-slate-900">1.0.0</span>
-              </div>
-              <div class="flex items-center justify-between text-xs p-2.5 rounded-xl bg-slate-50 border border-slate-100">
-                <span class="text-slate-600 font-medium">Última Actualización</span>
-                <span id="summary-last-update" class="font-medium text-slate-700">Hoy</span>
-              </div>
-              <div class="flex items-center justify-between text-xs p-2.5 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-800">
-                <span class="font-medium">Regla Stock Preventa</span>
-                <span class="font-bold">Activa (Oculta sin stock)</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="pt-4">
-            <button onclick="notifyDeveloper('preventa')" class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl shadow-sm transition flex items-center justify-center gap-2">
-              <i class="fa-brands fa-whatsapp text-sm"></i>
-              <span>Avisar al Desarrollador para Publicar</span>
-            </button>
-            <p class="text-[11px] text-slate-400 text-center mt-2">Se abre WhatsApp con el resumen listo para enviar.</p>
-          </div>
-        </div>
-
       </div>
 
       <!-- Actualización Interna de Información -->
@@ -525,7 +489,7 @@
           <table class="w-full text-left border-collapse text-xs">
             <thead>
               <tr class="bg-slate-100/75 text-slate-700 border-b border-slate-200">
-                <th class="p-3 w-16 text-center">Foto</th>
+                <th class="p-3.5 w-36 text-center font-bold">Foto</th>
                 <th class="p-3 w-28">Código</th>
                 <th class="p-3">Nombre del Producto</th>
                 <th class="p-3 w-28 text-center">Stock</th>
@@ -983,7 +947,7 @@
 
   <!-- Photo Preview Modal -->
   <div id="photo-preview-modal" class="hidden fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
-    <div class="relative max-w-2xl w-full bg-white rounded-2xl overflow-hidden shadow-2xl">
+    <div class="relative max-w-3xl w-full bg-white rounded-2xl overflow-hidden shadow-2xl">
       <div class="p-4 border-b border-slate-100 flex items-center justify-between">
         <div>
           <h4 id="preview-title" class="text-sm font-bold text-slate-900">Vista Previa de Foto</h4>
@@ -994,7 +958,7 @@
         </button>
       </div>
       <div class="p-6 bg-slate-950 flex items-center justify-center min-h-[350px]">
-        <img id="preview-img" src="" alt="Producto" class="max-h-[450px] object-contain rounded-lg shadow-md">
+        <img id="preview-img" src="" alt="Producto" class="max-h-[600px] w-auto max-w-full object-contain rounded-lg shadow-md bg-white p-2">
       </div>
     </div>
   </div>
